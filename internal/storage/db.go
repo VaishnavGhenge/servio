@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -76,9 +77,10 @@ func isColumnExistsError(err error) bool {
 	if err == nil {
 		return false
 	}
+	errStr := err.Error()
 	// SQLite returns "duplicate column name" error
-	return err.Error() == "duplicate column name: git_repo_url" ||
-	       err.Error() == "table projects has no column named git_repo_url"
+	return strings.Contains(errStr, "duplicate column name") ||
+		strings.Contains(errStr, "no column named")
 }
 
 // DB returns the underlying database connection for advanced queries
