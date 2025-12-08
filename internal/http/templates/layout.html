@@ -1,0 +1,40 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Servio</title>
+    <link rel="stylesheet" href="/static/style.css?v=2">
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="/" class="logo">
+                <span class="logo-icon">⚙️</span>
+                <span class="logo-text">Servio</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Dashboard</a>
+                <a href="/projects/new" class="nav-link btn btn-primary">+ New Service</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {{template "content" .}}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>Servio - Lightweight Service Manager</p>
+        </div>
+    </footer>
+
+    <script src="/static/app.js?v=2"></script>
+</body>
+
+</html>
+{{end}}

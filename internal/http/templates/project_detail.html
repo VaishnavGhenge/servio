@@ -1,0 +1,109 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="project-detail">
+    <header class="page-header">
+        <div class="header-left">
+            <a href="/" class="back-link">← Back</a>
+            <h1>{{.Project.Name}}</h1>
+            <span class="status-badge status-{{.Project.Status}}">{{.Project.Status}}</span>
+        </div>
+        <div class="header-actions">
+            <a href="/projects/{{.Project.ID}}/edit" class="btn btn-secondary">Edit</a>
+            <form method="POST" action="/projects/{{.Project.ID}}/delete" class="inline-form"
+                onsubmit="return confirm('Are you sure you want to delete this service?')">
+                <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+        </div>
+    </header>
+
+    {{if .Error}}
+    <div class="alert alert-error">
+        <span class="alert-icon">⚠️</span>
+        {{.Error}}
+    </div>
+    {{end}}
+
+    <div class="detail-grid">
+        <!-- Service Info Card -->
+        <div class="card">
+            <h2 class="card-title">Service Info</h2>
+            <dl class="info-list">
+                <dt>Description</dt>
+                <dd>{{if .Project.Description}}{{.Project.Description}}{{else}}<em>No description</em>{{end}}</dd>
+
+                <dt>Command</dt>
+                <dd><code>{{.Project.Command}}</code></dd>
+
+                <dt>Working Directory</dt>
+                <dd><code>{{if .Project.WorkingDir}}{{.Project.WorkingDir}}{{else}}/{{end}}</code></dd>
+
+                <dt>User</dt>
+                <dd>{{.Project.User}}</dd>
+
+                <dt>Auto-restart</dt>
+                <dd>{{if .Project.AutoRestart}}Yes{{else}}No{{end}}</dd>
+
+                {{if .Project.Environment}}
+                <dt>Environment</dt>
+                <dd>
+                    <pre class="env-vars">{{.Project.Environment}}</pre>
+                </dd>
+                {{end}}
+            </dl>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="card control-panel">
+            <h2 class="card-title">Controls</h2>
+
+            <div class="control-buttons">
+                {{if .Installed}}
+                {{if eq .Project.Status "running"}}
+                <form method="POST" action="/projects/{{.Project.ID}}/stop">
+                    <button type="submit" class="btn btn-danger btn-block">
+                        <span class="btn-icon">⏹</span> Stop
+                    </button>
+                </form>
+                <form method="POST" action="/projects/{{.Project.ID}}/restart">
+                    <button type="submit" class="btn btn-warning btn-block">
+                        <span class="btn-icon">🔄</span> Restart
+                    </button>
+                </form>
+                {{else}}
+                <form method="POST" action="/projects/{{.Project.ID}}/start">
+                    <button type="submit" class="btn btn-success btn-block">
+                        <span class="btn-icon">▶️</span> Start
+                    </button>
+                </form>
+                {{end}}
+                <form method="POST" action="/projects/{{.Project.ID}}/uninstall">
+                    <button type="submit" class="btn btn-secondary btn-block">
+                        <span class="btn-icon">📦</span> Uninstall
+                    </button>
+                </form>
+                {{else}}
+                <form method="POST" action="/projects/{{.Project.ID}}/install">
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <span class="btn-icon">📦</span> Install Service
+                    </button>
+                </form>
+                <p class="help-text">Install the systemd service to start managing it.</p>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Section -->
+    <div class="card logs-card">
+        <div class="card-header">
+            <h2 class="card-title">Logs</h2>
+            <div class="log-controls">
+                <button id="refresh-logs" class="btn btn-secondary btn-sm">Refresh</button>
+                <button id="stream-logs" class="btn btn-primary btn-sm">Stream Live</button>
+            </div>
+        </div>
+        <pre id="log-output" class="log-output" data-project-id="{{.Project.ID}}">{{.Logs}}</pre>
+    </div>
+</div>
+{{end}}
