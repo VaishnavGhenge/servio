@@ -1,0 +1,17 @@
+[Unit]
+Description=Servio - Lightweight Service Manager
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/servio
+ExecStart=/opt/servio/servio -addr :8080 -db /opt/servio/servio.db
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servio
+
+[Install]
+WantedBy=multi-user.target
