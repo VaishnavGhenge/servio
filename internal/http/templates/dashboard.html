@@ -17,11 +17,11 @@
             <p class="service-desc">{{.Description}}</p>
             <div class="service-meta">
                 <span class="meta-item">
-                    <span class="meta-icon">📁</span>
+                    <span class="meta-icon">{{template "icon-folder"}}</span>
                     {{if .WorkingDir}}{{.WorkingDir}}{{else}}/{{end}}
                 </span>
                 <span class="meta-item">
-                    <span class="meta-icon">👤</span>
+                    <span class="meta-icon">{{template "icon-user"}}</span>
                     {{.User}}
                 </span>
             </div>
@@ -49,7 +49,7 @@
     </div>
     {{else}}
     <div class="empty-state">
-        <div class="empty-icon">🚀</div>
+        <div class="empty-icon">{{template "icon-rocket"}}</div>
         <h2>No services yet</h2>
         <p>Create your first service to get started</p>
         <a href="/projects/new" class="btn btn-primary">Create Service</a>

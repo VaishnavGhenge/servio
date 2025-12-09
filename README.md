@@ -2,6 +2,9 @@
 
 Servio is a lightweight, self-hosted web UI for managing systemd services on your Linux servers. It allows you to deploy, monitor, and manage services on your own infrastructure without reliance on any centralized cloud provider.
 
+![Servio Dashboard](assets/screenshots/dashboard.png)
+<!-- To display a screenshot, create the 'assets/screenshots' directory and save your image as 'dashboard.png' -->
+
 
 
 ## Features
