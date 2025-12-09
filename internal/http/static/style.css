@@ -51,7 +51,7 @@ body {
 .container {
     max-width: 1100px;
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 10px 24px;
     width: 100%;
 }
 
@@ -165,13 +165,16 @@ main {
     padding: 10px 16px;
     font-size: 14px;
     font-weight: 500;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
     text-decoration: none;
     transition: all 0.15s ease;
     white-space: nowrap;
     font-family: inherit;
+    line-height: 1.5;
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .btn-primary {
@@ -591,7 +594,7 @@ main {
 /* Responsive */
 @media (max-width: 768px) {
     .container {
-        padding: 0 16px;
+        padding: 10px 16px;
     }
 
     main {

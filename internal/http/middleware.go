@@ -8,37 +8,20 @@ import (
 	"time"
 )
 
-// Auth credentials - can be set via environment variables
-var (
-	authUsername string
-	authPassword string
-)
-
-func init() {
-	authUsername = getEnv("SERVIO_USERNAME", nil)
-	authPassword = getEnv("SERVIO_PASSWORD", nil)
-	if authUsername == "" || authPassword == "" {
-		panic("SERVIO_USERNAME and SERVIO_PASSWORD environment variables must be set")
-	}
-}
-
-func getEnv(key string, fallback interface{}) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	if str, ok := fallback.(string); ok {
-		return str
-	}
-	return ""
-}
-
 // BasicAuth is a middleware that requires HTTP basic authentication
 func BasicAuth(next http.Handler) http.Handler {
+	username := os.Getenv("SERVIO_USERNAME")
+	password := os.Getenv("SERVIO_PASSWORD")
+
+	if username == "" || password == "" {
+		log.Println("Warning: Basic Auth credentials not set")
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 
-		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(authUsername)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(pass), []byte(authPassword)) != 1 {
+		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(username)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(pass), []byte(password)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Servio"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return

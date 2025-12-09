@@ -21,13 +21,16 @@ var templatesFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
-var templates *template.Template
-
-func init() {
-	var err error
-	templates, err = template.ParseFS(templatesFS, "templates/*.html")
+// render parses and executes a template with the layout
+func render(w http.ResponseWriter, tmplName string, data interface{}) {
+	tmpl, err := template.ParseFS(templatesFS, "templates/layout.html", "templates/"+tmplName)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to parse templates: %v", err))
+		http.Error(w, fmt.Sprintf("Failed to parse templates: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.ExecuteTemplate(w, tmplName, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -68,9 +71,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"Title":    "Dashboard",
 	}
 
-	if err := templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "dashboard.html", data)
 }
 
 func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
@@ -79,9 +80,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 			"Title":   "New Project",
 			"Project": &storage.Project{AutoRestart: true},
 		}
-		if err := templates.ExecuteTemplate(w, "project_form.html", data); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		render(w, "project_form.html", data)
 		return
 	}
 
@@ -109,7 +108,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 				"Project": req,
 				"Error":   err.Error(),
 			}
-			templates.ExecuteTemplate(w, "project_form.html", data)
+			render(w, "project_form.html", data)
 			return
 		}
 
@@ -122,7 +121,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 					"Error":   fmt.Sprintf("Failed to clone repository: %v", err),
 				}
 				s.store.DeleteProject(project.ID)
-				templates.ExecuteTemplate(w, "project_form.html", data)
+				render(w, "project_form.html", data)
 				return
 			}
 		}
@@ -201,9 +200,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				"Project": project,
 				"Edit":    true,
 			}
-			if err := templates.ExecuteTemplate(w, "project_form.html", data); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
+			render(w, "project_form.html", data)
 			return
 		}
 
@@ -266,9 +263,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"Error":     r.URL.Query().Get("error"),
 	}
 
-	if err := templates.ExecuteTemplate(w, "project_detail.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "project_detail.html", data)
 }
 
 // ================== API Handlers ==================
