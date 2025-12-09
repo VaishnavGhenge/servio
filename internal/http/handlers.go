@@ -23,7 +23,7 @@ var staticFS embed.FS
 
 // render parses and executes a template with the layout
 func render(w http.ResponseWriter, tmplName string, data interface{}) {
-	tmpl, err := template.ParseFS(templatesFS, "templates/layout.html", "templates/"+tmplName)
+	tmpl, err := template.ParseFS(templatesFS, "templates/layout.html", "templates/icons.html", "templates/"+tmplName)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to parse templates: %v", err), http.StatusInternalServerError)
 		return
