@@ -28,7 +28,7 @@ Servio is a lightweight, self-hosted web UI for managing systemd services on you
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/servio.git
+    git clone https://github.com/vaishnavghenge/servio.git
     cd servio
     ```
 
