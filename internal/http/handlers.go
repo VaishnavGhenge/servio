@@ -254,6 +254,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Get startup time to filter logs
 	startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+	if startTime == "" {
+		startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
+	}
 	logs, _ := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
 
 	// Split logs into lines for better rendering
@@ -379,6 +382,9 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 
 			// Get startup time to filter logs
 			startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+			if startTime == "" {
+				startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
+			}
 			logs, err := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
 			if err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)

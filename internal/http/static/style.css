@@ -162,8 +162,8 @@ main {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 10px 16px;
-    font-size: 14px;
+    padding: 6px 12px;
+    font-size: 13px;
     font-weight: 500;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
@@ -453,19 +453,66 @@ main {
     margin-top: 24px;
 }
 
-.checkbox-label {
+.checkbox-group .checkbox-label {
     display: flex;
     align-items: center;
     gap: 10px;
     cursor: pointer;
     font-size: 14px;
+    position: relative;
+    user-select: none;
+    white-space: nowrap;
 }
 
 .checkbox-label input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
+    position: absolute;
+    opacity: 0;
     cursor: pointer;
-    accent-color: var(--color-text);
+    height: 0;
+    width: 0;
+}
+
+.checkbox-custom {
+    position: relative;
+    height: 18px;
+    width: 18px;
+    background-color: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: block;
+    flex-shrink: 0;
+}
+
+.checkbox-label:hover input~.checkbox-custom {
+    background-color: var(--color-bg-tertiary);
+    border-color: var(--color-text-tertiary);
+}
+
+.checkbox-label input:checked~.checkbox-custom {
+    background-color: var(--color-text);
+    border-color: var(--color-text);
+}
+
+.checkbox-custom::after {
+    content: "";
+    position: absolute;
+    display: none;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 9px;
+    border: solid var(--color-bg);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.checkbox-label input:checked~.checkbox-custom::after {
+    display: block;
+}
+
+.checkbox-label input:focus~.checkbox-custom {
+    box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-border);
 }
 
 .form-actions {

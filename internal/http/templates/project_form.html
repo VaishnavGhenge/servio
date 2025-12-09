@@ -17,7 +17,7 @@
     <form method="POST" class="project-form card">
         <div class="form-group">
             <label for="name">Service Name</label>
-            <input type="text" id="name" name="name" value="{{.Project.Name}}" required pattern="[a-zA-Z0-9_-]+"
+            <input type="text" id="name" name="name" value="{{.Project.Name}}" required pattern="[a-zA-Z0-9_\-]+"
                 placeholder="my-app" {{if .Edit}}readonly{{end}}>
             <small>Only letters, numbers, underscores, and hyphens. Cannot be changed later.</small>
         </div>
@@ -65,12 +65,13 @@
         <div class="form-group checkbox-group">
             <label class="checkbox-label">
                 <input type="checkbox" name="auto_restart" {{if .Project.AutoRestart}}checked{{end}}>
+                <span class="checkbox-custom"></span>
                 <span class="checkbox-text">Auto-restart on failure</span>
             </label>
         </div>
 
         <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-lg">
+            <button type="submit" class="btn btn-primary">
                 {{if .Edit}}Update{{else}}Create{{end}} Service
             </button>
         </div>
