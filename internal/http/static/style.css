@@ -586,7 +586,7 @@ main {
 /* Detail Grid */
 .detail-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr) 220px;
     gap: 24px;
     margin-bottom: 24px;
 }
