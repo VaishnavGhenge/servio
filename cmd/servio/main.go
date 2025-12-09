@@ -1,21 +1,28 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"log"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+"context"
+"flag"
+"log"
+"net/http"
+"os"
+"os/signal"
+"syscall"
+"time"
 
-	httpserver "servio/internal/http"
-	"servio/internal/storage"
-	"servio/internal/systemd"
+httpserver "servio/internal/http"
+"servio/internal/storage"
+"servio/internal/systemd"
+
+"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load environment variables from .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
+
 	// Parse flags
 	addr := flag.String("addr", ":8080", "HTTP server address")
 	dbPath := flag.String("db", "servio.db", "SQLite database path")

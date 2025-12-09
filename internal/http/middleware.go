@@ -10,15 +10,26 @@ import (
 
 // Auth credentials - can be set via environment variables
 var (
-	authUsername = getEnv("SERVIO_USERNAME", "admin")
-	authPassword = getEnv("SERVIO_PASSWORD", "servio")
+	authUsername string
+	authPassword string
 )
 
-func getEnv(key, fallback string) string {
+func init() {
+	authUsername = getEnv("SERVIO_USERNAME", nil)
+	authPassword = getEnv("SERVIO_PASSWORD", nil)
+	if authUsername == "" || authPassword == "" {
+		panic("SERVIO_USERNAME and SERVIO_PASSWORD environment variables must be set")
+	}
+}
+
+func getEnv(key string, fallback interface{}) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
-	return fallback
+	if str, ok := fallback.(string); ok {
+		return str
+	}
+	return ""
 }
 
 // BasicAuth is a middleware that requires HTTP basic authentication
