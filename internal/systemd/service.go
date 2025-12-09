@@ -86,6 +86,16 @@ func (m *Manager) runSystemctl(action, serviceName string) error {
 	return nil
 }
 
+// GetStartTime returns the ActiveEnterTimestamp of the service
+func (m *Manager) GetStartTime(serviceName string) (string, error) {
+	cmd := exec.Command("systemctl", "show", "-p", "ActiveEnterTimestamp", "--value", serviceName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get start time: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // ServiceStatus represents the status of a systemd service
 type ServiceStatus struct {
 	Name    string `json:"name"`

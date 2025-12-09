@@ -418,6 +418,11 @@ main {
     transition: all 0.15s ease;
 }
 
+.form-group textarea {
+    resize: vertical;
+    max-width: 100%;
+}
+
 .form-group input:focus,
 .form-group textarea:focus {
     outline: none;
@@ -489,7 +494,7 @@ main {
 /* Detail Grid */
 .detail-grid {
     display: grid;
-    grid-template-columns: 1fr 280px;
+    grid-template-columns: minmax(0, 1fr) 280px;
     gap: 24px;
     margin-bottom: 24px;
 }
@@ -510,6 +515,8 @@ main {
 .info-list dd {
     margin-bottom: 12px;
     font-size: 14px;
+    /* Ensure content doesn't overflow the container */
+    overflow: hidden;
 }
 
 .info-list code {
@@ -519,6 +526,7 @@ main {
     border-radius: var(--radius-sm);
     font-size: 13px;
     border: 1px solid var(--color-border-light);
+    word-break: break-all;
 }
 
 .env-vars {
@@ -529,6 +537,7 @@ main {
     border-radius: var(--radius-sm);
     overflow-x: auto;
     border: 1px solid var(--color-border-light);
+    max-width: 100%;
 }
 
 /* Control Panel */
@@ -565,19 +574,91 @@ main {
     line-height: 1.6;
     background: var(--color-bg);
     color: var(--color-text-secondary);
-    padding: 16px;
+    padding: 0;
     border-radius: var(--radius-md);
-    overflow-x: auto;
-    max-height: 400px;
+    overflow-x: hidden;
+    max-height: 500px;
     overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
     border: 1px solid var(--color-border-light);
 }
 
-.log-output:empty::before {
-    content: 'No logs available';
+.log-line {
+    padding: 4px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.log-line:hover {
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text);
+}
+
+.log-line.expanded {
+    white-space: pre-wrap;
+    word-break: break-all;
+    background-color: var(--color-bg-tertiary);
+    border-left: 3px solid var(--color-primary);
+    padding-left: 13px;
+    /* 16px - 3px border */
+}
+
+.empty-logs {
+    padding: 24px;
+    text-align: center;
     color: var(--color-text-tertiary);
+}
+
+/* Log Syntax Highlighting */
+.log-timestamp {
+    color: var(--color-success);
+    /* Brighter color */
+    font-size: 0.9em;
+    font-weight: 500;
+    margin-right: 8px;
+}
+
+.log-level-info {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.log-level-error {
+    color: var(--color-danger);
+    font-weight: 600;
+}
+
+.log-level-warn {
+    color: var(--color-warning);
+    font-weight: 600;
+}
+
+.log-level-debug {
+    color: var(--color-success);
+    font-weight: 600;
+}
+
+.log-method {
+    color: #d69eeb;
+}
+
+.log-status-2xx {
+    color: var(--color-success);
+}
+
+.log-status-3xx {
+    color: var(--color-primary);
+}
+
+.log-status-4xx {
+    color: var(--color-warning);
+}
+
+.log-status-5xx {
+    color: var(--color-danger);
 }
 
 /* Footer */

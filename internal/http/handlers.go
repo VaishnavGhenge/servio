@@ -252,13 +252,22 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		project.Status = "not installed"
 	}
 
-	logs, _ := s.svcManager.GetLogs(project.ServiceName(), 50)
+	// Get startup time to filter logs
+	startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+	logs, _ := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
+
+	// Split logs into lines for better rendering
+	logLines := strings.Split(logs, "\n")
+	if len(logLines) > 0 && logLines[len(logLines)-1] == "" {
+		logLines = logLines[:len(logLines)-1]
+	}
 
 	data := map[string]interface{}{
 		"Title":     project.Name,
 		"Project":   project,
 		"Status":    status,
 		"Logs":      logs,
+		"LogLines":  logLines,
 		"Installed": s.svcManager.ServiceExists(project.ServiceName()),
 		"Error":     r.URL.Query().Get("error"),
 	}
@@ -343,7 +352,7 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 
 	// Handle actions
 	if len(parts) > 1 {
-		action := parts[1]
+		action := strings.Join(parts[1:], "/")
 		switch action {
 		case "start":
 			if err := s.svcManager.Start(project.ServiceName()); err != nil {
@@ -367,13 +376,10 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, map[string]string{"status": "restarted"})
 
 		case "logs":
-			lines := 100
-			if l := r.URL.Query().Get("lines"); l != "" {
-				if n, err := strconv.Atoi(l); err == nil {
-					lines = n
-				}
-			}
-			logs, err := s.svcManager.GetLogs(project.ServiceName(), lines)
+
+			// Get startup time to filter logs
+			startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+			logs, err := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
 			if err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)
 				return

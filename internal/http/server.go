@@ -50,8 +50,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/projects", s.handleAPIProjects)
 	mux.HandleFunc("/api/projects/", s.handleAPIProject)
 
-	// Static assets
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(getStaticFS()))))
+	// Static assets with no-cache headers
+	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(getStaticFS())))
+	mux.Handle("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		staticHandler.ServeHTTP(w, r)
+	}))
 }
 
 // Start starts the HTTP server

@@ -60,11 +60,29 @@ WantedBy=multi-user.target
 		}
 	}
 
+	fmt.Printf("DEBUG: Generating service for %s. Command: '%s', WorkingDir: '%s'\n", project.Name, project.Command, workingDir)
+
+	// Resolve executable path if it's not absolute
+	// Systemd requires absolute paths for executables
+	command := project.Command
+	cmdParts := strings.Fields(command)
+	if len(cmdParts) > 0 {
+		exe := cmdParts[0]
+		// Explicitly check for relative paths starting with ./ or no slash at all
+		if !strings.HasPrefix(exe, "/") {
+			absExe := filepath.Join(workingDir, exe)
+			fmt.Printf("DEBUG: Resolving relative path '%s' to '%s'\n", exe, absExe)
+			command = strings.Replace(command, exe, absExe, 1)
+		} else {
+			fmt.Printf("DEBUG: Path '%s' is already absolute\n", exe)
+		}
+	}
+
 	content := fmt.Sprintf(template,
 		project.Description,
 		user,
 		workingDir,
-		project.Command,
+		command,
 		restart,
 		"servio-"+project.Name,
 		envSection,
@@ -78,6 +96,14 @@ func (m *Manager) InstallService(project *storage.Project) error {
 	content, err := m.GenerateServiceFile(project)
 	if err != nil {
 		return fmt.Errorf("failed to generate service file: %w", err)
+	}
+
+	// Ensure working directory exists
+	workingDir := project.WorkingDir
+	if workingDir != "" && workingDir != "/" {
+		if _, err := os.Stat(workingDir); os.IsNotExist(err) {
+			return fmt.Errorf("working directory '%s' does not exist", workingDir)
+		}
 	}
 
 	servicePath := filepath.Join(serviceDir, project.ServiceName())

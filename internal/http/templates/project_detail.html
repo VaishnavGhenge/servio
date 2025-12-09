@@ -99,11 +99,18 @@
         <div class="card-header">
             <h2 class="card-title">Logs</h2>
             <div class="log-controls">
+                <button id="copy-logs" class="btn btn-secondary btn-sm">Copy</button>
                 <button id="refresh-logs" class="btn btn-secondary btn-sm">Refresh</button>
                 <button id="stream-logs" class="btn btn-primary btn-sm">Stream Live</button>
             </div>
         </div>
-        <pre id="log-output" class="log-output" data-project-id="{{.Project.ID}}">{{.Logs}}</pre>
+        <div id="log-output" class="log-output" data-project-id="{{.Project.ID}}">
+            {{range .LogLines}}
+            <div class="log-line">{{.}}</div>
+            {{else}}
+            <div class="empty-logs">No logs available</div>
+            {{end}}
+        </div>
     </div>
 </div>
 {{end}}
