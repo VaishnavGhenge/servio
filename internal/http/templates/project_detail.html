@@ -63,18 +63,21 @@
             <div class="control-buttons">
                 {{if .Installed}}
                 {{if eq .Project.Status "running"}}
-                <button type="submit" class="btn btn-danger btn-block">
-                    <span class="btn-icon">{{template "icon-square"}}</span> Stop
-                </button>
+                <form method="POST" action="/projects/{{.Project.ID}}/stop">
+                    <button type="submit" class="btn btn-danger btn-block">
+                        <span class="btn-icon">{{template "icon-square"}}</span> Stop
+                    </button>
                 </form>
-                <button type="submit" class="btn btn-warning btn-block">
-                    <span class="btn-icon">{{template "icon-rotate-cw"}}</span> Restart
-                </button>
+                <form method="POST" action="/projects/{{.Project.ID}}/restart">
+                    <button type="submit" class="btn btn-warning btn-block">
+                        <span class="btn-icon">{{template "icon-rotate-cw"}}</span> Restart
+                    </button>
                 </form>
                 {{else}}
-                <button type="submit" class="btn btn-success btn-block">
-                    <span class="btn-icon">{{template "icon-play"}}</span> Start
-                </button>
+                <form method="POST" action="/projects/{{.Project.ID}}/start">
+                    <button type="submit" class="btn btn-success btn-block">
+                        <span class="btn-icon">{{template "icon-play"}}</span> Start
+                    </button>
                 </form>
                 {{end}}
                 <form method="POST" action="/projects/{{.Project.ID}}/uninstall">
