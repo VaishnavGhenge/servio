@@ -1037,6 +1037,93 @@ select.form-control:focus {
   color: var(--color-danger);
 }
 
+/* Code Display & Editor */
+.config-container {
+  margin-top: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.config-view, .config-edit {
+  margin: 0;
+  padding: 20px;
+  min-height: 300px;
+  max-height: 600px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.config-view {
+  white-space: pre;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-alt, rgba(0,0,0,0.2));
+}
+
+.config-edit {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  resize: vertical;
+  display: none; /* Hidden by default */
+  outline: none;
+}
+
+.service-config-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+
+.service-config-details summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-config-details summary::before {
+  content: "▶";
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.service-config-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.service-config-details .config-container {
+  margin-top: 12px;
+}
+
+.service-config-details .config-view {
+  min-height: 150px;
+}
+
+/* Syntax Highlighting Colors */
+.nx-keyword { color: var(--color-primary); font-weight: 600; }
+.nx-variable { color: #d69eeb; }
+.nx-string { color: var(--color-success); }
+.nx-comment { color: var(--color-text-tertiary); font-style: italic; }
+.nx-directive { color: var(--color-warning); }
+.nx-number { color: #ff9d00; }
+
+#nginx-config:focus {
+  outline: none;
+}
+
 /* Footer */
 .footer {
   background: var(--color-bg);
@@ -1138,6 +1225,7 @@ select.form-control:focus {
   overflow-x: auto;
   font-size: 12px;
   line-height: 1.6;
+  font-family: var(--font-mono);
 }
 
 .preview-content code {

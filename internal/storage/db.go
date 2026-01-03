@@ -51,6 +51,11 @@ func New(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Enable Foreign Keys
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
 	s := &Storage{db: db}
 
 	if err := s.migrate(); err != nil {

@@ -92,8 +92,11 @@
                 <div class="expert-content">
                     <div class="form-group">
                         <label for="systemd_raw">Raw Systemd Unit</label>
-                        <textarea id="systemd_raw" name="systemd_raw" rows="8"
-                            placeholder="Paste complete systemd unit to override...">{{.Service.SystemdRaw}}</textarea>
+                        <div class="config-container">
+                            <pre id="systemd-view" class="config-view"></pre>
+                            <textarea id="systemd_raw" name="systemd_raw" class="config-edit" rows="8" 
+                                oninput="updateSystemdView()" placeholder="Paste complete systemd unit to override...">{{.Service.SystemdRaw}}</textarea>
+                        </div>
                         <small>If provided, this will completely replace the generated config.</small>
                     </div>
                 </div>
@@ -109,11 +112,11 @@
         <div class="config-preview card">
             <div class="card-title">
                 <span>Systemd Unit Preview</span>
-                <span class="preview-badge">Live</span>
+                <span class="preview-badge" style="background: rgba(var(--color-primary-rgb), 0.2); color: var(--color-primary);">PREVIEW</span>
             </div>
 
             <div class="preview-content" id="preview-systemd">
-                <pre><code id="systemd-preview">[Unit]
+                <pre id="systemd-preview" class="code-preview code-block" data-language="systemd">[Unit]
 Description=Managed Service: my-backend
 After=network.target
 
@@ -129,7 +132,7 @@ StandardError=journal
 SyslogIdentifier=servio-my-backend
 
 [Install]
-WantedBy=multi-user.target</code></pre>
+WantedBy=multi-user.target</pre>
             </div>
 
             <p class="preview-hint">Nginx config is managed at the Project level.</p>
@@ -266,7 +269,7 @@ ${envLines}
 [Install]
 WantedBy=multi-user.target`;
 
-        systemdPreview.textContent = systemdUnit;
+        systemdPreview.innerHTML = highlightSystemd(systemdUnit);
     }
 
     // Event listeners
@@ -289,8 +292,17 @@ WantedBy=multi-user.target`;
         });
     });
 
+    function updateSystemdView() {
+        const edit = document.getElementById('systemd_raw');
+        const view = document.getElementById('systemd-view');
+        if (edit && view) {
+            view.innerHTML = highlightSystemd(edit.value);
+        }
+    }
+
     // Initialize
     updateVersionOptions();
+    updateSystemdView();
 })();
 </script>
 {{end}}

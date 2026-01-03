@@ -190,9 +190,17 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		if action == "delete" {
 			// Delete project and all its services
 			for _, sv := range project.Services {
-				s.svcManager.UninstallService(r.Context(), sv.ServiceName())
+				if err := s.svcManager.UninstallService(r.Context(), sv.ServiceName()); err != nil {
+					slog.Warn("Failed to uninstall service", "service", sv.Name, "error", err)
+				}
 			}
-			s.store.DeleteProject(r.Context(), id)
+
+			if err := s.store.DeleteProject(r.Context(), id); err != nil {
+				slog.Error("Failed to delete project", "project_id", id, "error", err)
+				http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s", id, "Failed to delete project: "+err.Error()), http.StatusSeeOther)
+				return
+			}
+
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -242,6 +250,14 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			sv.Status = "stopped"
 		} else {
 			sv.Status = "not installed"
+		}
+
+		// Generate default systemd config for display if raw is empty
+		if sv.SystemdRaw == "" {
+			generated, err := s.svcManager.GenerateServiceFile(sv)
+			if err == nil {
+				sv.SystemdRaw = generated
+			}
 		}
 	}
 

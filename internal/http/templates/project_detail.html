@@ -42,9 +42,12 @@
             <button class="btn btn-danger" onclick="removeNginx()" id="remove-btn" style="display:none;">Remove</button>
         </div>
         <div class="nginx-preview" id="nginx-preview" style="display:none;">
-            <textarea id="nginx-config" rows="20" spellcheck="false"></textarea>
+            <div class="config-container">
+                <pre id="nginx-view" class="config-view"></pre>
+                <textarea id="nginx-config" class="config-edit" rows="20" spellcheck="false" oninput="syncEditToView()"></textarea>
+            </div>
             <div class="nginx-preview-actions">
-                <small id="config-hint">Edit the config above. Click "Save & Deploy" to apply changes.</small>
+                <small id="config-hint">Click "Edit Config" to switch between view and edit modes.</small>
             </div>
         </div>
     </div>
@@ -97,6 +100,13 @@
                     <code>{{if .WorkingDir}}{{.WorkingDir}}{{else}}/{{end}}</code>
                 </div>
             </div>
+
+            <details class="service-config-details">
+                <summary>View Systemd Configuration</summary>
+                <div class="config-container">
+                    <pre class="config-view code-block" data-language="systemd" id="svc-conf-{{.ID}}">{{.SystemdRaw}}</pre>
+                </div>
+            </details>
         </div>
         {{else}}
         <div class="empty-state">
@@ -142,32 +152,57 @@ async function checkNginxStatus() {
 
 async function togglePreview() {
     const preview = document.getElementById('nginx-preview');
-    const textarea = document.getElementById('nginx-config');
+    const view = document.getElementById('nginx-view');
+    const edit = document.getElementById('nginx-config');
     const resetBtn = document.getElementById('reset-btn');
+    const hint = document.getElementById('config-hint');
     
     if (preview.style.display === 'none') {
-        // Load current config
+        // First open: show VIEW mode
         try {
             const res = await fetch(`/api/nginx/${projectId}/preview`);
             const data = await res.json();
-            textarea.value = data.config || 'Error loading config';
+            edit.value = data.config || '';
             defaultConfig = data.default_config || '';
             isCustomized = data.is_customized;
+            
+            view.innerHTML = highlightNginx(edit.value);
+            view.style.display = 'block';
+            edit.style.display = 'none';
         } catch (e) {
-            textarea.value = 'Error loading config';
+            view.textContent = 'Error loading config';
         }
         preview.style.display = 'block';
         resetBtn.style.display = isCustomized ? 'inline-flex' : 'none';
+        hint.textContent = 'Click "Edit Config" to modify the configuration.';
     } else {
-        preview.style.display = 'none';
-        resetBtn.style.display = 'none';
+        // Toggle between VIEW and EDIT if already open
+        if (edit.style.display === 'none') {
+            edit.style.display = 'block';
+            view.style.display = 'none';
+            hint.textContent = 'Editing mode. Changes are synced to view.';
+        } else {
+            view.innerHTML = highlightNginx(edit.value);
+            view.style.display = 'block';
+            edit.style.display = 'none';
+            hint.textContent = 'View mode. Click "Edit Config" to switch back.';
+        }
+    }
+}
+
+function syncEditToView() {
+    const edit = document.getElementById('nginx-config');
+    const view = document.getElementById('nginx-view');
+    if (edit && view) {
+        view.innerHTML = highlightNginx(edit.value);
     }
 }
 
 function resetConfig() {
-    const textarea = document.getElementById('nginx-config');
+    const edit = document.getElementById('nginx-config');
     if (confirm('Reset to auto-generated config? Your customizations will be lost.')) {
-        textarea.value = defaultConfig;
+        edit.value = defaultConfig;
+        syncEditToView();
     }
 }
 

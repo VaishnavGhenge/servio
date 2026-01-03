@@ -1,10 +1,71 @@
 // Servio - JavaScript Application
+// Servio - JavaScript Application
+
+// Robust syntax highlighter that avoids nesting by using placeholders
+function highlightContent(text, mode) {
+  if (!text) return "";
+
+  // 1. Escape HTML entities that could break the display
+  let content = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  const tokens = [];
+  const map = (cls, content) => {
+    const id = `@@@TOKEN_${tokens.length}@@@`;
+    tokens.push(`<span class="${cls}">${content}</span>`);
+    return id;
+  };
+
+  if (mode === 'nginx') {
+    // Comments
+    content = content.replace(/(#.*)/g, (m) => map('nx-comment', m));
+    // Strings (quoted)
+    content = content.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (m) => map('nx-string', m));
+    // Keywords
+    const keywords = /\b(server|location|listen|server_name|root|index|proxy_pass|proxy_set_header|try_files|rewrite|if|return|set|include|upstream|client_max_body_size|access_log|error_log|ssl_certificate|ssl_certificate_key|ssl_protocols|ssl_ciphers|gzip|proxy_cache|proxy_buffering|fastcgi_pass|alias|auth_basic|allow|deny|map|limit_req|add_header|proxy_hide_header|proxy_read_timeout|proxy_connect_timeout)\b/g;
+    content = content.replace(keywords, (m) => map('nx-keyword', m));
+    // Variables
+    content = content.replace(/(\$[a-zA-Z0-9_]+)/g, (m) => map('nx-variable', m));
+    // Numbers
+    content = content.replace(/\b(\d+)\b/g, (m) => map('nx-number', m));
+  } else if (mode === 'systemd') {
+    // Sections
+    content = content.replace(/^(\[.*\])/gm, (m) => map('nx-directive', m));
+    // Comments
+    content = content.replace(/(#.*|;.*)/g, (m) => map('nx-comment', m));
+    // Keys
+    content = content.replace(/^([a-zA-Z0-9]+)=/gm, (m, k) => map('nx-keyword', k) + '=');
+  }
+
+  // Restore tokens in one pass to avoid nesting issues
+  return content.replace(/@@@TOKEN_(\d+)@@@/g, (match, id) => {
+    return tokens[parseInt(id)];
+  });
+}
+
+function highlightNginx(text) { return highlightContent(text, 'nginx'); }
+function highlightSystemd(text) { return highlightContent(text, 'systemd'); }
 
 document.addEventListener("DOMContentLoaded", function () {
   initLogControls();
   initThemeToggle();
   initDashboardRefresh();
+  initCodeHighlighting();
 });
+
+// Auto-highlight any element with class 'code-block' and 'data-language'
+function initCodeHighlighting() {
+  document.querySelectorAll(".code-block").forEach((el) => {
+    const lang = el.dataset.language;
+    if (lang === "nginx") {
+      el.innerHTML = highlightNginx(el.textContent);
+    } else if (lang === "systemd") {
+      el.innerHTML = highlightSystemd(el.textContent);
+    }
+  });
+}
 
 // Initialize theme toggle
 function initThemeToggle() {
