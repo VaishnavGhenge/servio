@@ -57,6 +57,7 @@
       
       <p class="project-description">{{.Description}}</p>
 
+      {{if .Services}}
       <div class="project-services-preview">
         {{range .Services}}
         <div class="mini-service" id="svc-{{.ID}}">
@@ -70,6 +71,7 @@
         </div>
         {{end}}
       </div>
+      {{end}}
 
       <div class="project-actions">
         <a href="/projects/{{.ID}}" class="btn btn-outline btn-sm">Manage Project</a>
