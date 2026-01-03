@@ -39,3 +39,5 @@ Thumbs.db
 
 .env
 deploy.sh/bin/
+
+bin/

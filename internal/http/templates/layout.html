@@ -6,7 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Servio</title>
-    <link rel="stylesheet" href="/static/style.css?v=7">
+    <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 
 <body>
@@ -18,10 +18,63 @@
             </a>
             <div class="nav-links">
                 <a href="/" class="nav-link">Dashboard</a>
-                <a href="/projects/new" class="btn btn-primary btn-sm">+ New Service</a>
+                <a href="/projects/new" class="btn btn-primary btn-sm">+ New Project</a>
             </div>
         </div>
     </nav>
+
+    <div class="pulse-bar">
+        <div class="container pulse-container">
+            <div class="pulse-status-info">
+                <span class="pulse-live-dot"></span>
+                <span class="pulse-live-text">Live System Stats</span>
+                <span class="os-badge" id="os-name-badge" style="margin-left: 10px; font-size: 11px; font-weight: 500; background: var(--color-bg-secondary); padding: 2px 8px; border-radius: 4px; color: var(--color-text-secondary); opacity: 0.8;">Detecting...</span>
+            </div>
+            
+            <div class="pulse-widgets">
+                <div class="pulse-widget">
+                    <div class="pulse-icon">{{template "icon-cpu"}}</div>
+                    <div class="pulse-info">
+                        <span class="pulse-label">CPU Usage</span>
+                        <div class="pulse-progress-wrapper">
+                            <div class="pulse-progress"><div class="pulse-fill" id="cpu-fill" style="width: 0%"></div></div>
+                            <span class="pulse-value" id="cpu-value">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pulse-widget">
+                    <div class="pulse-icon">{{template "icon-memory"}}</div>
+                    <div class="pulse-info">
+                        <span class="pulse-label">Memory</span>
+                        <div class="pulse-progress-wrapper">
+                            <div class="pulse-progress"><div class="pulse-fill" id="mem-fill" style="width: 0%"></div></div>
+                            <span class="pulse-value" id="mem-value">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pulse-widget">
+                    <div class="pulse-icon">{{template "icon-disk"}}</div>
+                    <div class="pulse-info">
+                        <span class="pulse-label">Disk Space</span>
+                        <div class="pulse-progress-wrapper">
+                            <div class="pulse-progress"><div class="pulse-fill" id="disk-fill" style="width: 0%"></div></div>
+                            <span class="pulse-value" id="disk-value">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pulse-widget pulse-uptime">
+                    <div class="pulse-icon">{{template "icon-uptime"}}</div>
+                    <div class="pulse-info">
+                        <span class="pulse-label">System Uptime</span>
+                        <span class="pulse-value" id="uptime-value">0h 0m</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <main class="container">
         {{template "content" .}}
@@ -33,7 +86,7 @@
         </div>
     </footer>
 
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 
 </html>

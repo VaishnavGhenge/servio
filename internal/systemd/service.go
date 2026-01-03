@@ -22,7 +22,7 @@ type ServiceManager interface {
 	GetStartTime(ctx context.Context, serviceName string) (string, error)
 	GetLogsWithTimeRange(ctx context.Context, serviceName, since, until string) (string, error)
 	StreamLogs(ctx context.Context, serviceName string) (<-chan string, error)
-	InstallService(ctx context.Context, project *storage.Project) error
+	InstallService(ctx context.Context, service *storage.Service) error
 	UninstallService(ctx context.Context, serviceName string) error
 	ServiceExists(serviceName string) bool
 }

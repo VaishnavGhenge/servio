@@ -1,17 +1,28 @@
 [Unit]
 Description=Servio - Lightweight Service Manager
-After=network.target
+Documentation=https://github.com/yourusername/servio
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/servio
-ExecStart=/opt/servio/servio -addr :8080 -db /opt/servio/servio.db
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
+WorkingDirectory=/opt
+EnvironmentFile=-/opt/.env
+ExecStart=/opt/servio -addr :8080 -db /var/lib/servio/data.db
+Restart=always
+RestartSec=5s
+StandardOutput=append:/var/log/servio/servio.log
+StandardError=append:/var/log/servio/servio.log
 SyslogIdentifier=servio
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+
+# Resource limits
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

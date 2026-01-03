@@ -1,59 +1,92 @@
-{{template "layout" .}}
-
-{{define "content"}}
+{{template "layout" .}} {{define "content"}}
 <div class="dashboard">
-    <header class="page-header">
-        <h1>Services</h1>
-    </header>
+  <header class="page-header">
+    <h1>Services</h1>
+  </header>
+  
+  {{if not .Distro}}
+  <div class="setup-card card">
+    <div class="card-title">🚀 Complete Setup</div>
+    <p>Please select your server's operating system to ensure perfect configuration.</p>
+    
+    <form action="/api/settings/distro" method="POST" class="distro-form">
+      <div class="distro-grid">
+        <label class="distro-card">
+          <input type="radio" name="distro" value="amazon-linux" required>
+          <div class="distro-content">
+            <span class="distro-icon">🏢</span>
+            <div class="distro-text">
+              <strong>Amazon Linux 2023</strong>
+              <span>RHEL/DNF based</span>
+            </div>
+          </div>
+        </label>
+        
+        <label class="distro-card">
+          <input type="radio" name="distro" value="ubuntu" required>
+          <div class="distro-content">
+            <span class="distro-icon">🐧</span>
+            <div class="distro-text">
+              <strong>Ubuntu / Debian</strong>
+              <span>APT based</span>
+            </div>
+          </div>
+        </label>
+      </div>
+      <div class="form-actions">
+           <button type="submit" class="btn btn-primary">Save & Continue</button>
+      </div>
+    </form>
+  </div>
+  {{end}}
 
-    {{if .Projects}}
-    <div class="service-grid">
-        {{range .Projects}}
-        <div class="service-card">
-            <div class="service-header">
-                <h3 class="service-name">{{.Name}}</h3>
-                <span class="status-badge status-{{.Status}}">{{.Status}}</span>
-            </div>
-            <p class="service-desc">{{.Description}}</p>
-            <div class="service-meta">
-                <span class="meta-item">
-                    <span class="meta-icon">{{template "icon-folder"}}</span>
-                    {{if .WorkingDir}}{{.WorkingDir}}{{else}}/{{end}}
-                </span>
-                <span class="meta-item">
-                    <span class="meta-icon">{{template "icon-user"}}</span>
-                    {{.User}}
-                </span>
-            </div>
-            <div class="service-actions">
-                {{if eq .Status "running"}}
-                <form method="POST" action="/projects/{{.ID}}/stop" class="inline-form">
-                    <button type="submit" class="btn btn-danger btn-sm">Stop</button>
-                </form>
-                <form method="POST" action="/projects/{{.ID}}/restart" class="inline-form">
-                    <button type="submit" class="btn btn-warning btn-sm">Restart</button>
-                </form>
-                {{else if eq .Status "stopped"}}
-                <form method="POST" action="/projects/{{.ID}}/start" class="inline-form">
-                    <button type="submit" class="btn btn-success btn-sm">Start</button>
-                </form>
-                {{else}}
-                <form method="POST" action="/projects/{{.ID}}/install" class="inline-form">
-                    <button type="submit" class="btn btn-primary btn-sm">Install</button>
-                </form>
-                {{end}}
-                <a href="/projects/{{.ID}}" class="btn btn-secondary btn-sm">View</a>
-            </div>
+  {{if .Projects}}
+  <div class="service-grid">
+    {{range .Projects}}
+    <div class="project-card card" id="project-{{.ID}}">
+      <div class="project-header">
+        <div class="project-title">
+          {{template "icon-package"}} {{.Name}}
+        </div>
+        <div class="project-meta">
+          {{if .Domain}}
+          <span class="badge badge-secondary">{{.Domain}}</span>
+          {{end}}
+        </div>
+      </div>
+      
+      <p class="project-description">{{.Description}}</p>
+
+      <div class="project-services-preview">
+        {{range .Services}}
+        <div class="mini-service" id="svc-{{.ID}}">
+          <div class="mini-service-meta">
+            <span class="dot status-{{.Status}}"></span>
+            <span class="mini-name">{{.Name}}</span>
+          </div>
+          <div class="service-stats-lite" id="stats-{{.ID}}">
+            <span class="status-text">{{.Status}}</span>
+          </div>
         </div>
         {{end}}
-    </div>
-    {{else}}
-    <div class="empty-state">
-        <div class="empty-icon">{{template "icon-rocket"}}</div>
-        <h2>No services yet</h2>
-        <p>Create your first service to get started</p>
-        <a href="/projects/new" class="btn btn-primary">Create Service</a>
+      </div>
+
+      <div class="project-actions">
+        <a href="/projects/{{.ID}}" class="btn btn-outline btn-sm">Manage Project</a>
+        <a href="/projects/{{.ID}}/edit" class="btn btn-secondary btn-sm" title="Settings">
+          {{template "icon-settings"}}
+        </a>
+      </div>
     </div>
     {{end}}
+  </div>
+  {{else}}
+  <div class="empty-state">
+    <div class="empty-icon">{{template "icon-package"}}</div>
+    <h3>No Projects Yet</h3>
+    <p>Get started by creating your first project.</p>
+    <a href="/projects/new" class="btn btn-primary">+ Create Project</a>
+  </div>
+  {{end}}
 </div>
 {{end}}

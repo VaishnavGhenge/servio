@@ -5,24 +5,35 @@ import (
 	"net/http"
 	"time"
 
+	"servio/internal/blueprints"
+	"servio/internal/nginx"
 	"servio/internal/storage"
 	"servio/internal/systemd"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	addr       string
-	httpServer *http.Server
-	store      storage.Store
-	svcManager systemd.ServiceManager
+	addr         string
+	httpServer   *http.Server
+	store        storage.Store
+	svcManager   systemd.ServiceManager
+	blueprints   *blueprints.Registry
+	nginxManager *nginx.Manager
 }
 
 // NewServer creates a new HTTP server
 func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManager) *Server {
 	s := &Server{
-		addr:       addr,
-		store:      store,
-		svcManager: svcManager,
+		addr:         addr,
+		store:        store,
+		svcManager:   svcManager,
+		blueprints:   blueprints.NewRegistry(),
+		nginxManager: nginx.NewManager(),
+	}
+
+	// Initial distro configuration from settings
+	if distro, err := store.GetSetting(context.Background(), "distro"); err == nil && distro != "" {
+		s.nginxManager.Configure(distro)
 	}
 
 	mux := http.NewServeMux()
@@ -45,10 +56,18 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", s.handleDashboard)
 	mux.HandleFunc("/projects/new", s.handleNewProject)
 	mux.HandleFunc("/projects/", s.handleProjectDetail)
+	mux.HandleFunc("/services/new", s.handleNewService)
+	mux.HandleFunc("/services/", s.handleServiceDetail)
 
 	// API routes
 	mux.HandleFunc("/api/projects", s.handleAPIProjects)
 	mux.HandleFunc("/api/projects/", s.handleAPIProject)
+	mux.HandleFunc("/api/services", s.handleAPIServices)
+	mux.HandleFunc("/api/services/", s.handleAPIService)
+	mux.HandleFunc("/api/stats", s.handleAPIStats)
+	mux.HandleFunc("/api/blueprints", s.handleAPIBlueprints)
+	mux.HandleFunc("/api/nginx/", s.handleAPINginx)
+	mux.HandleFunc("/api/settings/", s.handleAPISettings)
 
 	// Static assets with no-cache headers
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(getStaticFS())))

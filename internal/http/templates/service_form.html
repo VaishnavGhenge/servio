@@ -1,0 +1,296 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="service-form-page">
+    <header class="page-header">
+        <h1>Add Service</h1>
+        <a href="/projects/{{.ProjectID}}" class="btn btn-secondary">Cancel</a>
+    </header>
+
+    {{if .Error}}
+    <div class="alert alert-error">
+        <span class="alert-icon">{{template "icon-alert"}}</span>
+        {{.Error}}
+    </div>
+    {{end}}
+
+    <div class="form-with-preview">
+        <!-- Left: Form -->
+        <form method="POST" class="project-form card" id="service-form">
+            <div class="card-title">Service Configuration</div>
+
+            <div class="form-group">
+                <label for="name">Service Name</label>
+                <input type="text" id="name" name="name" value="{{.Service.Name}}" required pattern="[a-zA-Z0-9_\-]+"
+                    placeholder="my-backend" {{if .Edit}}readonly{{end}}>
+                <small>Lowercase, numbers, and hyphens only.</small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="type">Service Type</label>
+                    <select id="type" name="type" class="form-control">
+                        <option value="custom" {{if eq .Service.Type "custom"}}selected{{end}}>Custom Command</option>
+                        <option value="postgres" {{if eq .Service.Type "postgres"}}selected{{end}}>PostgreSQL</option>
+                        <option value="redis" {{if eq .Service.Type "redis"}}selected{{end}}>Redis</option>
+                        <option value="django" {{if eq .Service.Type "django"}}selected{{end}}>Django/Gunicorn</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="version-group">
+                    <label for="version">Version</label>
+                    <select id="version" name="version" class="form-control">
+                        <option value="">Latest</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" id="command-group">
+                <label for="command">Command</label>
+                <input type="text" id="command" name="command" value="{{.Service.Command}}"
+                    placeholder="npm start">
+                <small id="command-hint">The start command for your service.</small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="working_dir">Working Directory</label>
+                    <input type="text" id="working_dir" name="working_dir" value="{{.Service.WorkingDir}}"
+                        placeholder="/var/www/my-app">
+                </div>
+
+                <div class="form-group">
+                    <label for="user">User</label>
+                    <input type="text" id="user" name="user" value="{{.Service.User}}" placeholder="www-data">
+                </div>
+
+                <div class="form-group">
+                    <label for="port">Port (for Nginx)</label>
+                    <input type="number" id="port" name="port" value="{{if .Service.Port}}{{.Service.Port}}{{end}}"
+                        placeholder="8000" min="1" max="65535">
+                    <small>Optional. The port this service listens on.</small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="environment">Environment Variables</label>
+                <textarea id="environment" name="environment" rows="3"
+                    placeholder="PORT=8080&#10;DEBUG=true">{{.Service.Environment}}</textarea>
+            </div>
+
+            <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="auto_restart" name="auto_restart" {{if .Service.AutoRestart}}checked{{end}}>
+                    <span class="checkbox-custom"></span>
+                    <span class="checkbox-text">Auto-restart on failure</span>
+                </label>
+            </div>
+
+            <!-- Expert Mode Collapse -->
+            <details class="expert-section">
+                <summary>Expert Mode (Raw Systemd Override)</summary>
+                <div class="expert-content">
+                    <div class="form-group">
+                        <label for="systemd_raw">Raw Systemd Unit</label>
+                        <textarea id="systemd_raw" name="systemd_raw" rows="8"
+                            placeholder="Paste complete systemd unit to override...">{{.Service.SystemdRaw}}</textarea>
+                        <small>If provided, this will completely replace the generated config.</small>
+                    </div>
+                </div>
+            </details>
+
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create Service</button>
+            </div>
+        </form>
+
+        <!-- Right: Live Preview -->
+        <div class="config-preview card">
+            <div class="card-title">
+                <span>Systemd Unit Preview</span>
+                <span class="preview-badge">Live</span>
+            </div>
+
+            <div class="preview-content" id="preview-systemd">
+                <pre><code id="systemd-preview">[Unit]
+Description=Managed Service: my-backend
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/my-app
+ExecStart=/var/www/my-app/npm start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servio-my-backend
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+            </div>
+
+            <p class="preview-hint">Nginx config is managed at the Project level.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const versionMap = {
+        postgres: ['16', '15', '14', '13'],
+        redis: ['7', '6'],
+        django: ['22.0', '21.2', '20.1'],
+        custom: []
+    };
+
+    const typeDefaults = {
+        postgres: {
+            command: '/usr/pgsql-16/bin/postgres -D /var/lib/pgsql/16/data',
+            user: 'postgres',
+            working_dir: '/var/lib/pgsql',
+            hint: 'Auto-configured for PostgreSQL.'
+        },
+        redis: {
+            command: '/usr/bin/redis-server /etc/redis/redis.conf',
+            user: 'redis',
+            working_dir: '/var/lib/redis',
+            hint: 'Auto-configured for Redis.'
+        },
+        django: {
+            command: 'gunicorn --workers 2 --bind 0.0.0.0:8000 app.wsgi:application',
+            user: 'www-data',
+            working_dir: '/var/www/app',
+            hint: 'Gunicorn command. Configure workers and bind address.'
+        },
+        custom: {
+            command: '',
+            user: '',
+            working_dir: '',
+            hint: 'Enter the command to start your service.'
+        }
+    };
+
+    const typeSelect = document.getElementById('type');
+    const versionSelect = document.getElementById('version');
+    const versionGroup = document.getElementById('version-group');
+    const commandInput = document.getElementById('command');
+    const commandHint = document.getElementById('command-hint');
+    const commandGroup = document.getElementById('command-group');
+    const userInput = document.getElementById('user');
+    const workingDirInput = document.getElementById('working_dir');
+    const nameInput = document.getElementById('name');
+    const envInput = document.getElementById('environment');
+    const autoRestartInput = document.getElementById('auto_restart');
+    const systemdPreview = document.getElementById('systemd-preview');
+
+    function updateVersionOptions() {
+        const type = typeSelect.value;
+        const versions = versionMap[type] || [];
+        
+        versionSelect.innerHTML = '<option value="">Latest</option>';
+        versions.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = v;
+            versionSelect.appendChild(opt);
+        });
+
+        versionGroup.style.display = versions.length > 0 ? 'block' : 'none';
+
+        // Apply defaults for managed types
+        const defaults = typeDefaults[type];
+        if (defaults && type !== 'custom') {
+            commandInput.value = defaults.command;
+            commandInput.placeholder = defaults.command;
+            commandHint.textContent = defaults.hint;
+            userInput.value = defaults.user;
+            workingDirInput.value = defaults.working_dir;
+        } else {
+            // Clear or reset for custom
+            commandInput.value = '';
+            commandInput.placeholder = 'npm start';
+            userInput.value = '';
+            userInput.placeholder = 'www-data';
+            workingDirInput.value = '';
+            workingDirInput.placeholder = '/var/www/my-app';
+            commandHint.textContent = 'The start command for your service.';
+        }
+
+        updatePreview();
+    }
+
+    function updatePreview() {
+        const name = nameInput.value || 'my-service';
+        const type = typeSelect.value;
+        const user = userInput.value || 'root';
+        const workDir = workingDirInput.value || '/';
+        const command = commandInput.value || 'echo "No command"';
+        const env = envInput.value || '';
+        const autoRestart = autoRestartInput.checked;
+
+        // Build environment lines
+        let envLines = '';
+        if (env.trim()) {
+            env.split('\n').forEach(line => {
+                line = line.trim();
+                if (line && line.includes('=')) {
+                    envLines += `Environment="${line}"\n`;
+                }
+            });
+        }
+
+        // Resolve command path
+        let execStart = command;
+        if (!command.startsWith('/')) {
+            execStart = workDir + '/' + command;
+        }
+
+        const systemdUnit = `[Unit]
+Description=Managed Service: ${name}
+After=network.target
+
+[Service]
+Type=simple
+User=${user}
+WorkingDirectory=${workDir}
+ExecStart=${execStart}
+Restart=${autoRestart ? 'on-failure' : 'no'}
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servio-${name}
+${envLines}
+[Install]
+WantedBy=multi-user.target`;
+
+        systemdPreview.textContent = systemdUnit;
+    }
+
+    // Event listeners
+    typeSelect.addEventListener('change', updateVersionOptions);
+    versionSelect.addEventListener('change', updatePreview);
+    nameInput.addEventListener('input', updatePreview);
+    commandInput.addEventListener('input', updatePreview);
+    userInput.addEventListener('input', updatePreview);
+    workingDirInput.addEventListener('input', updatePreview);
+    envInput.addEventListener('input', updatePreview);
+    autoRestartInput.addEventListener('change', updatePreview);
+
+    // Tab switching
+    document.querySelectorAll('.preview-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.preview-content').forEach(c => c.classList.add('hidden'));
+            this.classList.add('active');
+            document.getElementById('preview-' + this.dataset.tab).classList.remove('hidden');
+        });
+    });
+
+    // Initialize
+    updateVersionOptions();
+})();
+</script>
+{{end}}

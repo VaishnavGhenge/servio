@@ -13,8 +13,13 @@ import (
 
 const serviceDir = "/etc/systemd/system"
 
-// GenerateServiceFile creates a systemd service file from a project
-func (m *Manager) GenerateServiceFile(project *storage.Project) (string, error) {
+// GenerateServiceFile creates a systemd service file from a service entity
+func (m *Manager) GenerateServiceFile(service *storage.Service) (string, error) {
+	if service.SystemdRaw != "" {
+		slog.Info("Using raw systemd override", "service", service.Name)
+		return service.SystemdRaw, nil
+	}
+
 	template := `[Unit]
 Description=%s
 After=network.target
@@ -36,24 +41,24 @@ WantedBy=multi-user.target
 `
 
 	restart := "no"
-	if project.AutoRestart {
+	if service.AutoRestart {
 		restart = "on-failure"
 	}
 
-	workingDir := project.WorkingDir
+	workingDir := service.WorkingDir
 	if workingDir == "" {
 		workingDir = "/"
 	}
 
-	user := project.User
+	user := service.User
 	if user == "" {
 		user = "root"
 	}
 
 	// Build environment section
 	envSection := ""
-	if project.Environment != "" {
-		lines := strings.Split(project.Environment, "\n")
+	if service.Environment != "" {
+		lines := strings.Split(service.Environment, "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line != "" && strings.Contains(line, "=") {
@@ -62,11 +67,11 @@ WantedBy=multi-user.target
 		}
 	}
 
-	slog.Debug("Generating service", "project", project.Name, "command", project.Command, "working_dir", workingDir)
+	slog.Debug("Generating service", "service", service.Name, "command", service.Command, "working_dir", workingDir)
 
 	// Resolve executable path if it's not absolute
 	// Systemd requires absolute paths for executables
-	command := project.Command
+	command := service.Command
 	cmdParts := strings.Fields(command)
 	if len(cmdParts) > 0 {
 		exe := cmdParts[0]
@@ -81,12 +86,12 @@ WantedBy=multi-user.target
 	}
 
 	content := fmt.Sprintf(template,
-		project.Description,
+		"Managed Service: "+service.Name,
 		user,
 		workingDir,
 		command,
 		restart,
-		"servio-"+project.Name,
+		"servio-"+service.Name,
 		envSection,
 	)
 
@@ -94,21 +99,21 @@ WantedBy=multi-user.target
 }
 
 // InstallService writes the service file and reloads systemd
-func (m *Manager) InstallService(ctx context.Context, project *storage.Project) error {
-	content, err := m.GenerateServiceFile(project)
+func (m *Manager) InstallService(ctx context.Context, service *storage.Service) error {
+	content, err := m.GenerateServiceFile(service)
 	if err != nil {
 		return fmt.Errorf("failed to generate service file: %w", err)
 	}
 
 	// Ensure working directory exists
-	workingDir := project.WorkingDir
+	workingDir := service.WorkingDir
 	if workingDir != "" && workingDir != "/" {
 		if _, err := os.Stat(workingDir); os.IsNotExist(err) {
 			return fmt.Errorf("working directory '%s' does not exist", workingDir)
 		}
 	}
 
-	servicePath := filepath.Join(serviceDir, project.ServiceName())
+	servicePath := filepath.Join(serviceDir, service.ServiceName())
 
 	if err := os.WriteFile(servicePath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write service file: %w", err)

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"servio/internal/git"
+	"servio/internal/monitor"
 	"servio/internal/storage"
 )
 
@@ -49,37 +50,88 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	distro, _ := s.store.GetSetting(r.Context(), "distro")
+
 	projects, err := s.store.ListProjects(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to load projects", http.StatusInternalServerError)
 		return
 	}
 
-	// Get status for each project
+	// Get summary for each project (using first service status if available)
 	for _, p := range projects {
-		status, _ := s.svcManager.Status(r.Context(), p.ServiceName())
-		if status.Active {
-			p.Status = "running"
-		} else if s.svcManager.ServiceExists(p.ServiceName()) {
-			p.Status = "stopped"
-		} else {
-			p.Status = "not installed"
-		}
+		services, _ := s.store.ListServicesByProject(r.Context(), p.ID)
+		p.Services = services
 	}
 
 	data := map[string]interface{}{
 		"Projects": projects,
+		"Stats":    monitor.GetStats(),
 		"Title":    "Dashboard",
+		"Distro":   distro,
 	}
 
 	render(w, "dashboard.html", data)
+}
+
+func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := strings.TrimPrefix(r.URL.Path, "/api/settings/")
+	if key == "" {
+		jsonError(w, "Missing setting key", http.StatusBadRequest)
+		return
+	}
+
+	var value string
+	// Check if it's a form or JSON
+	r.ParseForm()
+	value = r.FormValue("value")
+	if value == "" {
+		// Try to read from JSON body
+		var body struct {
+			Value string `json:"value"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			value = body.Value
+		}
+	}
+
+	// Special case for distro if sent as "distro" instead of "value"
+	if value == "" {
+		value = r.FormValue(key)
+	}
+
+	if value == "" {
+		jsonError(w, "Missing setting value", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.SetSetting(r.Context(), key, value); err != nil {
+		jsonError(w, "Failed to save setting", http.StatusInternalServerError)
+		return
+	}
+
+	// Reconfigure manager if distro changed
+	if key == "distro" {
+		s.nginxManager.Configure(value)
+	}
+
+	if r.Header.Get("Accept") == "application/json" || r.Header.Get("Content-Type") == "application/json" {
+		jsonResponse(w, map[string]string{"status": "saved"})
+	} else {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
 }
 
 func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		data := map[string]interface{}{
 			"Title":   "New Project",
-			"Project": &storage.Project{AutoRestart: true},
+			"Project": &storage.Project{},
 		}
 		render(w, "project_form.html", data)
 		return
@@ -94,12 +146,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 		req := &storage.CreateProjectRequest{
 			Name:        r.FormValue("name"),
 			Description: r.FormValue("description"),
-			GitRepoURL:  r.FormValue("git_repo_url"),
-			Command:     r.FormValue("command"),
-			WorkingDir:  r.FormValue("working_dir"),
-			User:        r.FormValue("user"),
-			Environment: r.FormValue("environment"),
-			AutoRestart: r.FormValue("auto_restart") == "on",
+			Domain:      r.FormValue("domain"),
 		}
 
 		project, err := s.store.CreateProject(r.Context(), req)
@@ -111,26 +158,6 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 			}
 			render(w, "project_form.html", data)
 			return
-		}
-
-		// Clone git repository if URL is provided
-		if project.GitRepoURL != "" && project.WorkingDir != "" {
-			if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
-				data := map[string]interface{}{
-					"Title":   "New Project",
-					"Project": project,
-					"Error":   fmt.Sprintf("Failed to clone repository: %v", err),
-				}
-				s.store.DeleteProject(r.Context(), project.ID)
-				render(w, "project_form.html", data)
-				return
-			}
-		}
-
-		// Install the systemd service
-		if err := s.svcManager.InstallService(r.Context(), project); err != nil {
-			// Log but don't fail - service can be installed manually
-			slog.Warn("Failed to install service", "error", err, "project", project.Name)
 		}
 
 		http.Redirect(w, r, "/projects/"+strconv.FormatInt(project.ID, 10), http.StatusSeeOther)
@@ -157,40 +184,18 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle actions
+	// Handle actions (Legacy support for single-service projects or project-level actions)
 	if len(parts) > 1 && r.Method == http.MethodPost {
 		action := parts[1]
-		var actionErr error
-
-		switch action {
-		case "start":
-			actionErr = s.svcManager.Start(r.Context(), project.ServiceName())
-		case "stop":
-			actionErr = s.svcManager.Stop(r.Context(), project.ServiceName())
-		case "restart":
-			actionErr = s.svcManager.Restart(r.Context(), project.ServiceName())
-		case "install":
-			actionErr = s.svcManager.InstallService(r.Context(), project)
-			if actionErr == nil {
-				s.svcManager.Enable(r.Context(), project.ServiceName())
+		if action == "delete" {
+			// Delete project and all its services
+			for _, sv := range project.Services {
+				s.svcManager.UninstallService(r.Context(), sv.ServiceName())
 			}
-		case "uninstall":
-			actionErr = s.svcManager.UninstallService(r.Context(), project.ServiceName())
-		case "delete":
-			s.svcManager.UninstallService(r.Context(), project.ServiceName())
 			s.store.DeleteProject(r.Context(), id)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
-
-		if actionErr != nil {
-			// Redirect back with error
-			http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s", id, actionErr.Error()), http.StatusSeeOther)
-			return
-		}
-
-		http.Redirect(w, r, fmt.Sprintf("/projects/%d", id), http.StatusSeeOther)
-		return
 	}
 
 	// Handle edit form
@@ -212,13 +217,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 
 			req := &storage.UpdateProjectRequest{
+				Name:        r.FormValue("name"),
 				Description: r.FormValue("description"),
-				GitRepoURL:  r.FormValue("git_repo_url"),
-				Command:     r.FormValue("command"),
-				WorkingDir:  r.FormValue("working_dir"),
-				User:        r.FormValue("user"),
-				Environment: r.FormValue("environment"),
-				AutoRestart: r.FormValue("auto_restart") == "on",
+				Domain:      r.FormValue("domain"),
 			}
 
 			project, err = s.store.UpdateProject(r.Context(), id, req)
@@ -227,53 +228,27 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Update git repository if URL changed
-			if project.GitRepoURL != "" && project.WorkingDir != "" {
-				if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
-					// Log warning but don't fail
-					slog.Warn("Failed to update repository", "error", err, "project", project.Name)
-				}
-			}
-
-			// Reinstall the service with new config
-			s.svcManager.InstallService(r.Context(), project)
-
 			http.Redirect(w, r, fmt.Sprintf("/projects/%d", id), http.StatusSeeOther)
 			return
 		}
 	}
 
-	// Get status and logs
-	status, _ := s.svcManager.Status(r.Context(), project.ServiceName())
-	if status.Active {
-		project.Status = "running"
-	} else if s.svcManager.ServiceExists(project.ServiceName()) {
-		project.Status = "stopped"
-	} else {
-		project.Status = "not installed"
-	}
-
-	// Get startup time to filter logs
-	startTime, _ := s.svcManager.GetStartTime(r.Context(), project.ServiceName())
-	if startTime == "" {
-		startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
-	}
-	logs, _ := s.svcManager.GetLogsWithTimeRange(r.Context(), project.ServiceName(), startTime, "")
-
-	// Split logs into lines for better rendering
-	logLines := strings.Split(logs, "\n")
-	if len(logLines) > 0 && logLines[len(logLines)-1] == "" {
-		logLines = logLines[:len(logLines)-1]
+	// Get status for each service
+	for _, sv := range project.Services {
+		status, _ := s.svcManager.Status(r.Context(), sv.ServiceName())
+		if status.Active {
+			sv.Status = "running"
+		} else if s.svcManager.ServiceExists(sv.ServiceName()) {
+			sv.Status = "stopped"
+		} else {
+			sv.Status = "not installed"
+		}
 	}
 
 	data := map[string]interface{}{
-		"Title":     project.Name,
-		"Project":   project,
-		"Status":    status,
-		"Logs":      logs,
-		"LogLines":  logLines,
-		"Installed": s.svcManager.ServiceExists(project.ServiceName()),
-		"Error":     r.URL.Query().Get("error"),
+		"Title":   project.Name,
+		"Project": project,
+		"Error":   r.URL.Query().Get("error"),
 	}
 
 	render(w, "project_detail.html", data)
@@ -290,18 +265,6 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get status for each
-		for _, p := range projects {
-			status, _ := s.svcManager.Status(r.Context(), p.ServiceName())
-			if status.Active {
-				p.Status = "running"
-			} else if s.svcManager.ServiceExists(p.ServiceName()) {
-				p.Status = "stopped"
-			} else {
-				p.Status = "not installed"
-			}
-		}
-
 		jsonResponse(w, projects)
 
 	case http.MethodPost:
@@ -316,18 +279,6 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Clone git repository if URL is provided
-		if project.GitRepoURL != "" && project.WorkingDir != "" {
-			if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
-				s.store.DeleteProject(r.Context(), project.ID)
-				jsonError(w, fmt.Sprintf("Failed to clone repository: %v", err), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// Install service
-		s.svcManager.InstallService(r.Context(), project)
 
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, project)
@@ -354,65 +305,15 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle actions
+	// Handle actions (Project-level, e.g., bulk actions might go here later)
 	if len(parts) > 1 {
-		action := strings.Join(parts[1:], "/")
-		switch action {
-		case "start":
-			if err := s.svcManager.Start(r.Context(), project.ServiceName()); err != nil {
-				jsonError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			jsonResponse(w, map[string]string{"status": "started"})
-
-		case "stop":
-			if err := s.svcManager.Stop(r.Context(), project.ServiceName()); err != nil {
-				jsonError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			jsonResponse(w, map[string]string{"status": "stopped"})
-
-		case "restart":
-			if err := s.svcManager.Restart(r.Context(), project.ServiceName()); err != nil {
-				jsonError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			jsonResponse(w, map[string]string{"status": "restarted"})
-
-		case "logs":
-
-			// Get startup time to filter logs
-			startTime, _ := s.svcManager.GetStartTime(r.Context(), project.ServiceName())
-			if startTime == "" {
-				startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
-			}
-			logs, err := s.svcManager.GetLogsWithTimeRange(r.Context(), project.ServiceName(), startTime, "")
-			if err != nil {
-				jsonError(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			jsonResponse(w, map[string]string{"logs": logs})
-
-		case "logs/stream":
-			s.handleLogStream(w, r, project)
-
-		default:
-			jsonError(w, "Unknown action", http.StatusBadRequest)
-		}
+		jsonError(w, "Project actions not supported at this level", http.StatusBadRequest)
 		return
 	}
 
 	// CRUD operations
 	switch r.Method {
 	case http.MethodGet:
-		status, _ := s.svcManager.Status(r.Context(), project.ServiceName())
-		if status.Active {
-			project.Status = "running"
-		} else if s.svcManager.ServiceExists(project.ServiceName()) {
-			project.Status = "stopped"
-		} else {
-			project.Status = "not installed"
-		}
 		jsonResponse(w, project)
 
 	case http.MethodPut:
@@ -428,19 +329,13 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Update git repository if URL is provided
-		if project.GitRepoURL != "" && project.WorkingDir != "" {
-			if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
-				jsonError(w, fmt.Sprintf("Failed to update repository: %v", err), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		s.svcManager.InstallService(r.Context(), project)
 		jsonResponse(w, project)
 
 	case http.MethodDelete:
-		s.svcManager.UninstallService(r.Context(), project.ServiceName())
+		// Delete all services first
+		for _, sv := range project.Services {
+			s.svcManager.UninstallService(r.Context(), sv.ServiceName())
+		}
 		if err := s.store.DeleteProject(r.Context(), id); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -453,7 +348,7 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLogStream handles SSE log streaming
-func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request, project *storage.Project) {
+func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request, service *storage.Service) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		jsonError(w, "Streaming not supported", http.StatusInternalServerError)
@@ -467,7 +362,7 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request, project
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	logChan, err := s.svcManager.StreamLogs(ctx, project.ServiceName())
+	logChan, err := s.svcManager.StreamLogs(ctx, service.ServiceName())
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
@@ -485,6 +380,408 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request, project
 			fmt.Fprintf(w, "data: %s\n\n", line)
 			flusher.Flush()
 		}
+	}
+}
+
+func (s *Server) handleAPIServices(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		projectIDStr := r.URL.Query().Get("project_id")
+		if projectIDStr == "" {
+			jsonError(w, "project_id is required", http.StatusBadRequest)
+			return
+		}
+		projectID, err := strconv.ParseInt(projectIDStr, 10, 64)
+		if err != nil {
+			jsonError(w, "invalid project_id", http.StatusBadRequest)
+			return
+		}
+		services, err := s.store.ListServicesByProject(r.Context(), projectID)
+		if err != nil {
+			jsonError(w, "failed to list services", http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, services)
+
+	case http.MethodPost:
+		var req storage.CreateServiceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		service, err := s.store.CreateService(r.Context(), &req)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Install the systemd service
+		if err := s.svcManager.InstallService(r.Context(), service); err != nil {
+			slog.Warn("Failed to install service", "error", err, "service", service.Name)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		jsonResponse(w, service)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIService(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/services/")
+	parts := strings.Split(path, "/")
+
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid service ID", http.StatusBadRequest)
+		return
+	}
+
+	service, err := s.store.GetService(r.Context(), id)
+	if err != nil || service == nil {
+		jsonError(w, "Service not found", http.StatusNotFound)
+		return
+	}
+
+	// Handle actions
+	if len(parts) > 1 {
+		action := strings.Join(parts[1:], "/")
+		switch action {
+		case "start":
+			if err := s.svcManager.Start(r.Context(), service.ServiceName()); err != nil {
+				jsonError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonResponse(w, map[string]string{"status": "started"})
+		case "stop":
+			if err := s.svcManager.Stop(r.Context(), service.ServiceName()); err != nil {
+				jsonError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonResponse(w, map[string]string{"status": "stopped"})
+		case "restart":
+			if err := s.svcManager.Restart(r.Context(), service.ServiceName()); err != nil {
+				jsonError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonResponse(w, map[string]string{"status": "restarted"})
+		case "logs":
+			startTime, _ := s.svcManager.GetStartTime(r.Context(), service.ServiceName())
+			if startTime == "" {
+				startTime = service.CreatedAt.Format("2006-01-02 15:04:05")
+			}
+			logs, err := s.svcManager.GetLogsWithTimeRange(r.Context(), service.ServiceName(), startTime, "")
+			if err != nil {
+				jsonError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonResponse(w, map[string]string{"logs": logs})
+		case "logs/stream":
+			s.handleLogStream(w, r, service)
+		default:
+			jsonError(w, "Unknown action", http.StatusBadRequest)
+		}
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		status, _ := s.svcManager.Status(r.Context(), service.ServiceName())
+		if status.Active {
+			service.Status = "running"
+		} else if s.svcManager.ServiceExists(service.ServiceName()) {
+			service.Status = "stopped"
+		} else {
+			service.Status = "not installed"
+		}
+		jsonResponse(w, service)
+
+	case http.MethodPut:
+		var req storage.UpdateServiceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		service, err = s.store.UpdateService(r.Context(), id, &req)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.svcManager.InstallService(r.Context(), service)
+		jsonResponse(w, service)
+
+	case http.MethodDelete:
+		s.svcManager.UninstallService(r.Context(), service.ServiceName())
+		if err := s.store.DeleteService(r.Context(), id); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
+	projects, _ := s.store.ListProjects(r.Context())
+	var serviceNames []string
+	for _, p := range projects {
+		services, _ := s.store.ListServicesByProject(r.Context(), p.ID)
+		for _, svc := range services {
+			serviceNames = append(serviceNames, svc.ServiceName())
+		}
+	}
+
+	jsonResponse(w, monitor.GetStats(serviceNames...))
+}
+
+func (s *Server) handleNewService(w http.ResponseWriter, r *http.Request) {
+	projectIDStr := r.URL.Query().Get("project_id")
+	if projectIDStr == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	projectID, _ := strconv.ParseInt(projectIDStr, 10, 64)
+
+	if r.Method == http.MethodGet {
+		data := map[string]interface{}{
+			"Title":     "Add Service",
+			"ProjectID": projectID,
+			"Service":   &storage.Service{AutoRestart: true},
+		}
+		render(w, "service_form.html", data)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		port, _ := strconv.Atoi(r.FormValue("port"))
+
+		req := &storage.CreateServiceRequest{
+			ProjectID:   projectID,
+			Name:        r.FormValue("name"),
+			Type:        r.FormValue("type"),
+			Port:        port,
+			GitRepoURL:  r.FormValue("git_repo_url"),
+			Command:     r.FormValue("command"),
+			WorkingDir:  r.FormValue("working_dir"),
+			User:        r.FormValue("user"),
+			Environment: r.FormValue("environment"),
+			AutoRestart: r.FormValue("auto_restart") == "on",
+			SystemdRaw:  r.FormValue("systemd_raw"),
+			NginxRaw:    r.FormValue("nginx_raw"),
+		}
+
+		service, err := s.store.CreateService(r.Context(), req)
+		if err != nil {
+			data := map[string]interface{}{
+				"Title":     "Add Service",
+				"ProjectID": projectID,
+				"Service":   req,
+				"Error":     err.Error(),
+			}
+			render(w, "service_form.html", data)
+			return
+		}
+
+		// Clone git repository if URL is provided
+		if service.GitRepoURL != "" && service.WorkingDir != "" {
+			if err := git.CloneRepository(service.GitRepoURL, service.WorkingDir); err != nil {
+				slog.Error("Failed to clone repository", "error", err, "service", service.Name)
+			}
+		}
+
+		// Install the systemd service
+		if err := s.svcManager.InstallService(r.Context(), service); err != nil {
+			slog.Warn("Failed to install service", "error", err, "service", service.Name)
+		}
+
+		http.Redirect(w, r, fmt.Sprintf("/projects/%d", projectID), http.StatusSeeOther)
+		return
+	}
+}
+
+func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/services/")
+	parts := strings.Split(path, "/")
+
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	service, err := s.store.GetService(r.Context(), id)
+	if err != nil || service == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Handle actions
+	if len(parts) > 1 && r.Method == http.MethodPost {
+		action := parts[1]
+		var actionErr error
+
+		switch action {
+		case "start":
+			actionErr = s.svcManager.Start(r.Context(), service.ServiceName())
+		case "stop":
+			actionErr = s.svcManager.Stop(r.Context(), service.ServiceName())
+		case "restart":
+			actionErr = s.svcManager.Restart(r.Context(), service.ServiceName())
+		case "install":
+			actionErr = s.svcManager.InstallService(r.Context(), service)
+			if actionErr == nil {
+				s.svcManager.Enable(r.Context(), service.ServiceName())
+			}
+		case "uninstall":
+			actionErr = s.svcManager.UninstallService(r.Context(), service.ServiceName())
+		case "delete":
+			s.svcManager.UninstallService(r.Context(), service.ServiceName())
+			s.store.DeleteService(r.Context(), id)
+			http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
+			return
+		}
+
+		if actionErr != nil {
+			http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s", service.ProjectID, actionErr.Error()), http.StatusSeeOther)
+			return
+		}
+
+		http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
+		return
+	}
+
+	// For now, if no action, just redirect to project
+	http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
+}
+
+// handleAPIBlueprints returns metadata for all registered blueprints
+// GET /api/blueprints - returns list of all blueprints with versions
+// GET /api/blueprints?type=postgres&version=16 - returns defaults for specific blueprint
+func (s *Server) handleAPIBlueprints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// If type is specified, return defaults for that blueprint
+	bpType := r.URL.Query().Get("type")
+	if bpType != "" {
+		version := r.URL.Query().Get("version")
+		defaults, ok := s.blueprints.GetDefaults(bpType, version)
+		if !ok {
+			jsonError(w, "Blueprint not found", http.StatusNotFound)
+			return
+		}
+		jsonResponse(w, defaults)
+		return
+	}
+
+	// Return all blueprint metadata
+	jsonResponse(w, s.blueprints.AllMetadata())
+}
+
+// handleAPINginx handles Nginx site config operations for a project
+// POST /api/nginx/{project_id}/deploy - Generate and install Nginx config
+// POST /api/nginx/{project_id}/remove - Remove Nginx config
+// GET /api/nginx/{project_id}/preview - Preview generated config
+func (s *Server) handleAPINginx(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/nginx/")
+	parts := strings.Split(path, "/")
+
+	if len(parts) < 2 {
+		jsonError(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	projectID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid project ID", http.StatusBadRequest)
+		return
+	}
+
+	action := parts[1]
+
+	project, err := s.store.GetProject(r.Context(), projectID)
+	if err != nil || project == nil {
+		jsonError(w, "Project not found", http.StatusNotFound)
+		return
+	}
+
+	switch action {
+	case "preview":
+		if r.Method != http.MethodGet {
+			jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		config, err := s.nginxManager.GenerateSiteConfig(project)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defaultConfig, _ := s.nginxManager.GenerateDefaultConfig(project)
+		jsonResponse(w, map[string]interface{}{
+			"config":         config,
+			"default_config": defaultConfig,
+			"path":           s.nginxManager.SiteConfigPath(project),
+			"installed":      s.nginxManager.SiteExists(project),
+			"is_customized":  project.NginxRaw != "",
+		})
+
+	case "deploy":
+		if r.Method != http.MethodPost {
+			jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if project.Domain == "" {
+			jsonError(w, "Project has no domain configured", http.StatusBadRequest)
+			return
+		}
+		if err := s.nginxManager.InstallSite(r.Context(), project); err != nil {
+			slog.Error("Failed to deploy nginx config", "error", err, "project", project.Name)
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, map[string]string{"status": "deployed", "domain": project.Domain})
+
+	case "remove":
+		if r.Method != http.MethodPost {
+			jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := s.nginxManager.UninstallSite(r.Context(), project); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, map[string]string{"status": "removed"})
+
+	case "save":
+		if r.Method != http.MethodPost {
+			jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Config string `json:"config"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		// Save the custom config to the project's NginxRaw field
+		_, err := s.store.UpdateProjectNginxRaw(r.Context(), project.ID, body.Config)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, map[string]string{"status": "saved"})
+
+	default:
+		jsonError(w, "Unknown action", http.StatusBadRequest)
 	}
 }
 
