@@ -1,19 +1,20 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
 )
 
 // CreateProject creates a new project in the database
-func (s *Storage) CreateProject(req *CreateProjectRequest) (*Project, error) {
+func (s *Storage) CreateProject(ctx context.Context, req *CreateProjectRequest) (*Project, error) {
 	user := req.User
 	if user == "" {
 		user = "root"
 	}
 
-	result, err := s.db.Exec(`
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO projects (name, description, git_repo_url, command, working_dir, user, environment, auto_restart)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`, req.Name, req.Description, req.GitRepoURL, req.Command, req.WorkingDir, user, req.Environment, req.AutoRestart)
@@ -26,15 +27,15 @@ func (s *Storage) CreateProject(req *CreateProjectRequest) (*Project, error) {
 		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
 	}
 
-	return s.GetProject(id)
+	return s.GetProject(ctx, id)
 }
 
 // GetProject retrieves a project by ID
-func (s *Storage) GetProject(id int64) (*Project, error) {
+func (s *Storage) GetProject(ctx context.Context, id int64) (*Project, error) {
 	p := &Project{}
 	var autoRestart int
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, description, git_repo_url, command, working_dir, user, environment, auto_restart, created_at, updated_at
 		FROM projects WHERE id = ?
 	`, id).Scan(
@@ -53,11 +54,11 @@ func (s *Storage) GetProject(id int64) (*Project, error) {
 }
 
 // GetProjectByName retrieves a project by name
-func (s *Storage) GetProjectByName(name string) (*Project, error) {
+func (s *Storage) GetProjectByName(ctx context.Context, name string) (*Project, error) {
 	p := &Project{}
 	var autoRestart int
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, description, git_repo_url, command, working_dir, user, environment, auto_restart, created_at, updated_at
 		FROM projects WHERE name = ?
 	`, name).Scan(
@@ -76,8 +77,8 @@ func (s *Storage) GetProjectByName(name string) (*Project, error) {
 }
 
 // ListProjects retrieves all projects
-func (s *Storage) ListProjects() ([]*Project, error) {
-	rows, err := s.db.Query(`
+func (s *Storage) ListProjects(ctx context.Context) ([]*Project, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, description, git_repo_url, command, working_dir, user, environment, auto_restart, created_at, updated_at
 		FROM projects ORDER BY name ASC
 	`)
@@ -106,8 +107,8 @@ func (s *Storage) ListProjects() ([]*Project, error) {
 }
 
 // UpdateProject updates a project by ID
-func (s *Storage) UpdateProject(id int64, req *UpdateProjectRequest) (*Project, error) {
-	_, err := s.db.Exec(`
+func (s *Storage) UpdateProject(ctx context.Context, id int64, req *UpdateProjectRequest) (*Project, error) {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE projects SET
 			description = ?, git_repo_url = ?, command = ?, working_dir = ?, user = ?,
 			environment = ?, auto_restart = ?, updated_at = ?
@@ -118,12 +119,12 @@ func (s *Storage) UpdateProject(id int64, req *UpdateProjectRequest) (*Project, 
 		return nil, fmt.Errorf("failed to update project: %w", err)
 	}
 
-	return s.GetProject(id)
+	return s.GetProject(ctx, id)
 }
 
 // DeleteProject deletes a project by ID
-func (s *Storage) DeleteProject(id int64) error {
-	_, err := s.db.Exec("DELETE FROM projects WHERE id = ?", id)
+func (s *Storage) DeleteProject(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete project: %w", err)
 	}

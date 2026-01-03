@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -10,12 +11,12 @@ import (
 
 // Store defines the interface for project persistence
 type Store interface {
-	CreateProject(req *CreateProjectRequest) (*Project, error)
-	GetProject(id int64) (*Project, error)
-	GetProjectByName(name string) (*Project, error)
-	ListProjects() ([]*Project, error)
-	UpdateProject(id int64, req *UpdateProjectRequest) (*Project, error)
-	DeleteProject(id int64) error
+	CreateProject(ctx context.Context, req *CreateProjectRequest) (*Project, error)
+	GetProject(ctx context.Context, id int64) (*Project, error)
+	GetProjectByName(ctx context.Context, name string) (*Project, error)
+	ListProjects(ctx context.Context) ([]*Project, error)
+	UpdateProject(ctx context.Context, id int64, req *UpdateProjectRequest) (*Project, error)
+	DeleteProject(ctx context.Context, id int64) error
 	Close() error
 }
 

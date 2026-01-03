@@ -49,7 +49,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projects, err := s.store.ListProjects()
+	projects, err := s.store.ListProjects(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to load projects", http.StatusInternalServerError)
 		return
@@ -57,7 +57,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Get status for each project
 	for _, p := range projects {
-		status, _ := s.svcManager.Status(p.ServiceName())
+		status, _ := s.svcManager.Status(r.Context(), p.ServiceName())
 		if status.Active {
 			p.Status = "running"
 		} else if s.svcManager.ServiceExists(p.ServiceName()) {
@@ -102,7 +102,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 			AutoRestart: r.FormValue("auto_restart") == "on",
 		}
 
-		project, err := s.store.CreateProject(req)
+		project, err := s.store.CreateProject(r.Context(), req)
 		if err != nil {
 			data := map[string]interface{}{
 				"Title":   "New Project",
@@ -121,14 +121,14 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 					"Project": project,
 					"Error":   fmt.Sprintf("Failed to clone repository: %v", err),
 				}
-				s.store.DeleteProject(project.ID)
+				s.store.DeleteProject(r.Context(), project.ID)
 				render(w, "project_form.html", data)
 				return
 			}
 		}
 
 		// Install the systemd service
-		if err := s.svcManager.InstallService(project); err != nil {
+		if err := s.svcManager.InstallService(r.Context(), project); err != nil {
 			// Log but don't fail - service can be installed manually
 			slog.Warn("Failed to install service", "error", err, "project", project.Name)
 		}
@@ -151,7 +151,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := s.store.GetProject(id)
+	project, err := s.store.GetProject(r.Context(), id)
 	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
@@ -164,21 +164,21 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 		switch action {
 		case "start":
-			actionErr = s.svcManager.Start(project.ServiceName())
+			actionErr = s.svcManager.Start(r.Context(), project.ServiceName())
 		case "stop":
-			actionErr = s.svcManager.Stop(project.ServiceName())
+			actionErr = s.svcManager.Stop(r.Context(), project.ServiceName())
 		case "restart":
-			actionErr = s.svcManager.Restart(project.ServiceName())
+			actionErr = s.svcManager.Restart(r.Context(), project.ServiceName())
 		case "install":
-			actionErr = s.svcManager.InstallService(project)
+			actionErr = s.svcManager.InstallService(r.Context(), project)
 			if actionErr == nil {
-				s.svcManager.Enable(project.ServiceName())
+				s.svcManager.Enable(r.Context(), project.ServiceName())
 			}
 		case "uninstall":
-			actionErr = s.svcManager.UninstallService(project.ServiceName())
+			actionErr = s.svcManager.UninstallService(r.Context(), project.ServiceName())
 		case "delete":
-			s.svcManager.UninstallService(project.ServiceName())
-			s.store.DeleteProject(id)
+			s.svcManager.UninstallService(r.Context(), project.ServiceName())
+			s.store.DeleteProject(r.Context(), id)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -221,7 +221,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				AutoRestart: r.FormValue("auto_restart") == "on",
 			}
 
-			project, err = s.store.UpdateProject(id, req)
+			project, err = s.store.UpdateProject(r.Context(), id, req)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -236,7 +236,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Reinstall the service with new config
-			s.svcManager.InstallService(project)
+			s.svcManager.InstallService(r.Context(), project)
 
 			http.Redirect(w, r, fmt.Sprintf("/projects/%d", id), http.StatusSeeOther)
 			return
@@ -244,7 +244,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get status and logs
-	status, _ := s.svcManager.Status(project.ServiceName())
+	status, _ := s.svcManager.Status(r.Context(), project.ServiceName())
 	if status.Active {
 		project.Status = "running"
 	} else if s.svcManager.ServiceExists(project.ServiceName()) {
@@ -254,11 +254,11 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get startup time to filter logs
-	startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+	startTime, _ := s.svcManager.GetStartTime(r.Context(), project.ServiceName())
 	if startTime == "" {
 		startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
 	}
-	logs, _ := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
+	logs, _ := s.svcManager.GetLogsWithTimeRange(r.Context(), project.ServiceName(), startTime, "")
 
 	// Split logs into lines for better rendering
 	logLines := strings.Split(logs, "\n")
@@ -284,7 +284,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		projects, err := s.store.ListProjects()
+		projects, err := s.store.ListProjects(r.Context())
 		if err != nil {
 			jsonError(w, "Failed to list projects", http.StatusInternalServerError)
 			return
@@ -292,7 +292,7 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 
 		// Get status for each
 		for _, p := range projects {
-			status, _ := s.svcManager.Status(p.ServiceName())
+			status, _ := s.svcManager.Status(r.Context(), p.ServiceName())
 			if status.Active {
 				p.Status = "running"
 			} else if s.svcManager.ServiceExists(p.ServiceName()) {
@@ -311,7 +311,7 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := s.store.CreateProject(&req)
+		project, err := s.store.CreateProject(r.Context(), &req)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -320,14 +320,14 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 		// Clone git repository if URL is provided
 		if project.GitRepoURL != "" && project.WorkingDir != "" {
 			if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
-				s.store.DeleteProject(project.ID)
+				s.store.DeleteProject(r.Context(), project.ID)
 				jsonError(w, fmt.Sprintf("Failed to clone repository: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}
 
 		// Install service
-		s.svcManager.InstallService(project)
+		s.svcManager.InstallService(r.Context(), project)
 
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, project)
@@ -348,7 +348,7 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := s.store.GetProject(id)
+	project, err := s.store.GetProject(r.Context(), id)
 	if err != nil || project == nil {
 		jsonError(w, "Project not found", http.StatusNotFound)
 		return
@@ -359,21 +359,21 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 		action := strings.Join(parts[1:], "/")
 		switch action {
 		case "start":
-			if err := s.svcManager.Start(project.ServiceName()); err != nil {
+			if err := s.svcManager.Start(r.Context(), project.ServiceName()); err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			jsonResponse(w, map[string]string{"status": "started"})
 
 		case "stop":
-			if err := s.svcManager.Stop(project.ServiceName()); err != nil {
+			if err := s.svcManager.Stop(r.Context(), project.ServiceName()); err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			jsonResponse(w, map[string]string{"status": "stopped"})
 
 		case "restart":
-			if err := s.svcManager.Restart(project.ServiceName()); err != nil {
+			if err := s.svcManager.Restart(r.Context(), project.ServiceName()); err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -382,11 +382,11 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 		case "logs":
 
 			// Get startup time to filter logs
-			startTime, _ := s.svcManager.GetStartTime(project.ServiceName())
+			startTime, _ := s.svcManager.GetStartTime(r.Context(), project.ServiceName())
 			if startTime == "" {
 				startTime = project.CreatedAt.Format("2006-01-02 15:04:05")
 			}
-			logs, err := s.svcManager.GetLogsWithTimeRange(project.ServiceName(), startTime, "")
+			logs, err := s.svcManager.GetLogsWithTimeRange(r.Context(), project.ServiceName(), startTime, "")
 			if err != nil {
 				jsonError(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -405,7 +405,7 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 	// CRUD operations
 	switch r.Method {
 	case http.MethodGet:
-		status, _ := s.svcManager.Status(project.ServiceName())
+		status, _ := s.svcManager.Status(r.Context(), project.ServiceName())
 		if status.Active {
 			project.Status = "running"
 		} else if s.svcManager.ServiceExists(project.ServiceName()) {
@@ -422,7 +422,7 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err = s.store.UpdateProject(id, &req)
+		project, err = s.store.UpdateProject(r.Context(), id, &req)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -436,12 +436,12 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		s.svcManager.InstallService(project)
+		s.svcManager.InstallService(r.Context(), project)
 		jsonResponse(w, project)
 
 	case http.MethodDelete:
-		s.svcManager.UninstallService(project.ServiceName())
-		if err := s.store.DeleteProject(id); err != nil {
+		s.svcManager.UninstallService(r.Context(), project.ServiceName())
+		if err := s.store.DeleteProject(r.Context(), id); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

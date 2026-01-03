@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -93,7 +94,7 @@ WantedBy=multi-user.target
 }
 
 // InstallService writes the service file and reloads systemd
-func (m *Manager) InstallService(project *storage.Project) error {
+func (m *Manager) InstallService(ctx context.Context, project *storage.Project) error {
 	content, err := m.GenerateServiceFile(project)
 	if err != nil {
 		return fmt.Errorf("failed to generate service file: %w", err)
@@ -113,7 +114,7 @@ func (m *Manager) InstallService(project *storage.Project) error {
 		return fmt.Errorf("failed to write service file: %w", err)
 	}
 
-	if err := m.Reload(); err != nil {
+	if err := m.Reload(ctx); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
 
@@ -121,10 +122,10 @@ func (m *Manager) InstallService(project *storage.Project) error {
 }
 
 // UninstallService removes the service file and reloads systemd
-func (m *Manager) UninstallService(serviceName string) error {
+func (m *Manager) UninstallService(ctx context.Context, serviceName string) error {
 	// Stop the service first
-	m.Stop(serviceName)
-	m.Disable(serviceName)
+	m.Stop(ctx, serviceName)
+	m.Disable(ctx, serviceName)
 
 	servicePath := filepath.Join(serviceDir, serviceName)
 
@@ -132,7 +133,7 @@ func (m *Manager) UninstallService(serviceName string) error {
 		return fmt.Errorf("failed to remove service file: %w", err)
 	}
 
-	return m.Reload()
+	return m.Reload(ctx)
 }
 
 // ServiceExists checks if a service file exists

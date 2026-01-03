@@ -38,4 +38,4 @@ go.work
 Thumbs.db
 
 .env
-deploy.sh
+deploy.sh/bin/

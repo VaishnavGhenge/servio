@@ -12,18 +12,18 @@ import (
 
 // ServiceManager defines the interface for managing system services
 type ServiceManager interface {
-	Start(serviceName string) error
-	Stop(serviceName string) error
-	Restart(serviceName string) error
-	Enable(serviceName string) error
-	Disable(serviceName string) error
-	Status(serviceName string) (ServiceStatus, error)
-	Reload() error
-	GetStartTime(serviceName string) (string, error)
-	GetLogsWithTimeRange(serviceName, since, until string) (string, error)
+	Start(ctx context.Context, serviceName string) error
+	Stop(ctx context.Context, serviceName string) error
+	Restart(ctx context.Context, serviceName string) error
+	Enable(ctx context.Context, serviceName string) error
+	Disable(ctx context.Context, serviceName string) error
+	Status(ctx context.Context, serviceName string) (ServiceStatus, error)
+	Reload(ctx context.Context) error
+	GetStartTime(ctx context.Context, serviceName string) (string, error)
+	GetLogsWithTimeRange(ctx context.Context, serviceName, since, until string) (string, error)
 	StreamLogs(ctx context.Context, serviceName string) (<-chan string, error)
-	InstallService(project *storage.Project) error
-	UninstallService(serviceName string) error
+	InstallService(ctx context.Context, project *storage.Project) error
+	UninstallService(ctx context.Context, serviceName string) error
 	ServiceExists(serviceName string) bool
 }
 
@@ -36,48 +36,48 @@ func NewManager() *Manager {
 }
 
 // Start starts a systemd service
-func (m *Manager) Start(serviceName string) error {
-	return m.runSystemctl("start", serviceName)
+func (m *Manager) Start(ctx context.Context, serviceName string) error {
+	return m.runSystemctl(ctx, "start", serviceName)
 }
 
 // Stop stops a systemd service
-func (m *Manager) Stop(serviceName string) error {
-	return m.runSystemctl("stop", serviceName)
+func (m *Manager) Stop(ctx context.Context, serviceName string) error {
+	return m.runSystemctl(ctx, "stop", serviceName)
 }
 
 // Restart restarts a systemd service
-func (m *Manager) Restart(serviceName string) error {
-	return m.runSystemctl("restart", serviceName)
+func (m *Manager) Restart(ctx context.Context, serviceName string) error {
+	return m.runSystemctl(ctx, "restart", serviceName)
 }
 
 // Enable enables a systemd service to start on boot
-func (m *Manager) Enable(serviceName string) error {
-	return m.runSystemctl("enable", serviceName)
+func (m *Manager) Enable(ctx context.Context, serviceName string) error {
+	return m.runSystemctl(ctx, "enable", serviceName)
 }
 
 // Disable disables a systemd service from starting on boot
-func (m *Manager) Disable(serviceName string) error {
-	return m.runSystemctl("disable", serviceName)
+func (m *Manager) Disable(ctx context.Context, serviceName string) error {
+	return m.runSystemctl(ctx, "disable", serviceName)
 }
 
 // Status returns the status of a systemd service
-func (m *Manager) Status(serviceName string) (ServiceStatus, error) {
+func (m *Manager) Status(ctx context.Context, serviceName string) (ServiceStatus, error) {
 	status := ServiceStatus{
 		Name: serviceName,
 	}
 
 	// Check if active
-	activeCmd := exec.Command("systemctl", "is-active", serviceName)
+	activeCmd := exec.CommandContext(ctx, "systemctl", "is-active", serviceName)
 	activeOut, _ := activeCmd.Output()
 	status.Active = strings.TrimSpace(string(activeOut)) == "active"
 
 	// Check if enabled
-	enabledCmd := exec.Command("systemctl", "is-enabled", serviceName)
+	enabledCmd := exec.CommandContext(ctx, "systemctl", "is-enabled", serviceName)
 	enabledOut, _ := enabledCmd.Output()
 	status.Enabled = strings.TrimSpace(string(enabledOut)) == "enabled"
 
 	// Get full status
-	statusCmd := exec.Command("systemctl", "status", serviceName, "--no-pager")
+	statusCmd := exec.CommandContext(ctx, "systemctl", "status", serviceName, "--no-pager")
 	var stdout, stderr bytes.Buffer
 	statusCmd.Stdout = &stdout
 	statusCmd.Stderr = &stderr
@@ -89,8 +89,8 @@ func (m *Manager) Status(serviceName string) (ServiceStatus, error) {
 }
 
 // Reload reloads the systemd daemon
-func (m *Manager) Reload() error {
-	cmd := exec.Command("systemctl", "daemon-reload")
+func (m *Manager) Reload(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "daemon-reload")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("daemon-reload failed: %s - %w", string(output), err)
 	}
@@ -98,8 +98,8 @@ func (m *Manager) Reload() error {
 }
 
 // runSystemctl executes a systemctl command
-func (m *Manager) runSystemctl(action, serviceName string) error {
-	cmd := exec.Command("systemctl", action, serviceName)
+func (m *Manager) runSystemctl(ctx context.Context, action, serviceName string) error {
+	cmd := exec.CommandContext(ctx, "systemctl", action, serviceName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl %s %s failed: %s - %w", action, serviceName, string(output), err)
 	}
@@ -107,8 +107,8 @@ func (m *Manager) runSystemctl(action, serviceName string) error {
 }
 
 // GetStartTime returns the ActiveEnterTimestamp of the service
-func (m *Manager) GetStartTime(serviceName string) (string, error) {
-	cmd := exec.Command("systemctl", "show", "-p", "ActiveEnterTimestamp", "--value", serviceName)
+func (m *Manager) GetStartTime(ctx context.Context, serviceName string) (string, error) {
+	cmd := exec.CommandContext(ctx, "systemctl", "show", "-p", "ActiveEnterTimestamp", "--value", serviceName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get start time: %w", err)

@@ -9,12 +9,12 @@ import (
 )
 
 // GetLogs retrieves recent logs for a service
-func (m *Manager) GetLogs(serviceName string, lines int) (string, error) {
+func (m *Manager) GetLogs(ctx context.Context, serviceName string, lines int) (string, error) {
 	if lines <= 0 {
 		lines = 100
 	}
 
-	cmd := exec.Command("journalctl",
+	cmd := exec.CommandContext(ctx, "journalctl",
 		"-u", serviceName,
 		"-n", strconv.Itoa(lines),
 		"--no-pager",
@@ -68,7 +68,7 @@ func (m *Manager) StreamLogs(ctx context.Context, serviceName string) (<-chan st
 }
 
 // GetLogsWithTimeRange retrieves logs for a service within a time range
-func (m *Manager) GetLogsWithTimeRange(serviceName, since, until string) (string, error) {
+func (m *Manager) GetLogsWithTimeRange(ctx context.Context, serviceName, since, until string) (string, error) {
 	args := []string{
 		"-u", serviceName,
 		"--no-pager",
@@ -82,7 +82,7 @@ func (m *Manager) GetLogsWithTimeRange(serviceName, since, until string) (string
 		args = append(args, "--until", until)
 	}
 
-	cmd := exec.Command("journalctl", args...)
+	cmd := exec.CommandContext(ctx, "journalctl", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
