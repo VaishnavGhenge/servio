@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ func (s *Server) handleNewProject(w http.ResponseWriter, r *http.Request) {
 		// Install the systemd service
 		if err := s.svcManager.InstallService(project); err != nil {
 			// Log but don't fail - service can be installed manually
-			fmt.Printf("Warning: Failed to install service: %v\n", err)
+			slog.Warn("Failed to install service", "error", err, "project", project.Name)
 		}
 
 		http.Redirect(w, r, "/projects/"+strconv.FormatInt(project.ID, 10), http.StatusSeeOther)
@@ -230,7 +231,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			if project.GitRepoURL != "" && project.WorkingDir != "" {
 				if err := git.CloneRepository(project.GitRepoURL, project.WorkingDir); err != nil {
 					// Log warning but don't fail
-					fmt.Printf("Warning: Failed to update repository: %v\n", err)
+					slog.Warn("Failed to update repository", "error", err, "project", project.Name)
 				}
 			}
 

@@ -13,12 +13,12 @@ import (
 type Server struct {
 	addr       string
 	httpServer *http.Server
-	store      *storage.Storage
-	svcManager *systemd.Manager
+	store      storage.Store
+	svcManager systemd.ServiceManager
 }
 
 // NewServer creates a new HTTP server
-func NewServer(addr string, store *storage.Storage, svcManager *systemd.Manager) *Server {
+func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManager) *Server {
 	s := &Server{
 		addr:       addr,
 		store:      store,

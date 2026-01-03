@@ -2,6 +2,7 @@ package systemd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ WantedBy=multi-user.target
 		}
 	}
 
-	fmt.Printf("DEBUG: Generating service for %s. Command: '%s', WorkingDir: '%s'\n", project.Name, project.Command, workingDir)
+	slog.Debug("Generating service", "project", project.Name, "command", project.Command, "working_dir", workingDir)
 
 	// Resolve executable path if it's not absolute
 	// Systemd requires absolute paths for executables
@@ -71,10 +72,10 @@ WantedBy=multi-user.target
 		// Explicitly check for relative paths starting with ./ or no slash at all
 		if !strings.HasPrefix(exe, "/") {
 			absExe := filepath.Join(workingDir, exe)
-			fmt.Printf("DEBUG: Resolving relative path '%s' to '%s'\n", exe, absExe)
+			slog.Debug("Resolving relative path", "exe", exe, "abs_exe", absExe)
 			command = strings.Replace(command, exe, absExe, 1)
 		} else {
-			fmt.Printf("DEBUG: Path '%s' is already absolute\n", exe)
+			slog.Debug("Path is already absolute", "exe", exe)
 		}
 	}
 

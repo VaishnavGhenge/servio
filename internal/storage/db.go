@@ -8,7 +8,18 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Storage handles all database operations
+// Store defines the interface for project persistence
+type Store interface {
+	CreateProject(req *CreateProjectRequest) (*Project, error)
+	GetProject(id int64) (*Project, error)
+	GetProjectByName(name string) (*Project, error)
+	ListProjects() ([]*Project, error)
+	UpdateProject(id int64, req *UpdateProjectRequest) (*Project, error)
+	DeleteProject(id int64) error
+	Close() error
+}
+
+// Storage handles all database operations and implements the Store interface
 type Storage struct {
 	db *sql.DB
 }

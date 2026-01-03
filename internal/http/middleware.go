@@ -2,7 +2,7 @@ package http
 
 import (
 	"crypto/subtle"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -14,7 +14,7 @@ func BasicAuth(next http.Handler) http.Handler {
 	password := os.Getenv("SERVIO_PASSWORD")
 
 	if username == "" || password == "" {
-		log.Println("Warning: Basic Auth credentials not set")
+		slog.Warn("Basic Auth credentials not set")
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,11 +41,12 @@ func Logger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrapped, r)
 
-		log.Printf("%s %s %d %s",
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			time.Since(start),
+		slog.Info("Request handled",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", wrapped.statusCode,
+			"duration", time.Since(start),
+			"remote_addr", r.RemoteAddr,
 		)
 	})
 }

@@ -2,12 +2,32 @@ package systemd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"servio/internal/storage"
 )
 
-// Manager provides systemd service management
+// ServiceManager defines the interface for managing system services
+type ServiceManager interface {
+	Start(serviceName string) error
+	Stop(serviceName string) error
+	Restart(serviceName string) error
+	Enable(serviceName string) error
+	Disable(serviceName string) error
+	Status(serviceName string) (ServiceStatus, error)
+	Reload() error
+	GetStartTime(serviceName string) (string, error)
+	GetLogsWithTimeRange(serviceName, since, until string) (string, error)
+	StreamLogs(ctx context.Context, serviceName string) (<-chan string, error)
+	InstallService(project *storage.Project) error
+	UninstallService(serviceName string) error
+	ServiceExists(serviceName string) bool
+}
+
+// Manager provides systemd service management and implements ServiceManager
 type Manager struct{}
 
 // NewManager creates a new systemd Manager

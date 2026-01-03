@@ -1,37 +1,38 @@
 package main
 
 import (
-"context"
-"flag"
-"log"
-"net/http"
-"os"
-"os/signal"
-"syscall"
-"time"
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-httpserver "servio/internal/http"
-"servio/internal/storage"
-"servio/internal/systemd"
-
-"github.com/joho/godotenv"
+	"servio/internal/config"
+	httpserver "servio/internal/http"
+	"servio/internal/storage"
+	"servio/internal/systemd"
 )
 
 func main() {
-	// Load environment variables from .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found")
+	// Initialize configuration
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("Failed to load configuration", "error", err)
+		os.Exit(1)
 	}
 
-	// Parse flags
-	addr := flag.String("addr", ":8080", "HTTP server address")
-	dbPath := flag.String("db", "servio.db", "SQLite database path")
-	flag.Parse()
+	// Initialize structured logger
+	setupLogger(cfg.LogLevel)
+
+	slog.Info("Starting Servio", "version", "1.0.0")
 
 	// Initialize storage
-	store, err := storage.New(*dbPath)
+	store, err := storage.New(cfg.DBPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize storage: %v", err)
+		slog.Error("Failed to initialize storage", "error", err, "path", cfg.DBPath)
+		os.Exit(1)
 	}
 	defer store.Close()
 
@@ -39,13 +40,14 @@ func main() {
 	svcManager := systemd.NewManager()
 
 	// Initialize HTTP server
-	server := httpserver.NewServer(*addr, store, svcManager)
+	server := httpserver.NewServer(cfg.Addr, store, svcManager)
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("🚀 Servio starting on http://localhost%s", *addr)
+		slog.Info("🚀 Server starting", "addr", cfg.Addr)
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			slog.Error("Server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -54,15 +56,35 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		slog.Error("Server shutdown error", "error", err)
 	}
 
-	log.Println("Server stopped")
+	slog.Info("Server stopped")
+}
+
+func setupLogger(level string) {
+	var slogLevel slog.Level
+	switch level {
+	case "debug":
+		slogLevel = slog.LevelDebug
+	case "info":
+		slogLevel = slog.LevelInfo
+	case "warn":
+		slogLevel = slog.LevelWarn
+	case "error":
+		slogLevel = slog.LevelError
+	default:
+		slogLevel = slog.LevelInfo
+	}
+
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel})
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
 }
