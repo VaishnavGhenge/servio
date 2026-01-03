@@ -6,7 +6,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Servio</title>
-    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=11">
+    <script>
+        // Apply theme immediately to prevent flashing
+        const theme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+    </script>
 </head>
 
 <body>
@@ -18,6 +23,10 @@
             </a>
             <div class="nav-links">
                 <a href="/" class="nav-link">Dashboard</a>
+                <div id="theme-toggle" class="theme-toggle" title="Toggle Theme">
+                    <span class="dark-only">{{template "icon-sun"}}</span>
+                    <span class="light-only" style="display: none;">{{template "icon-moon"}}</span>
+                </div>
                 <a href="/projects/new" class="btn btn-primary btn-sm">+ New Project</a>
             </div>
         </div>

@@ -41,6 +41,59 @@
     sans-serif;
 }
 
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f9f9fb;
+  --color-bg-tertiary: #f2f2f7;
+  --color-bg-elevated: #ffffff;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-light: rgba(0, 0, 0, 0.04);
+  --color-text: #000000;
+  --color-text-secondary: #4b4b4b;
+  --color-text-tertiary: #717171;
+
+  --color-primary: #007aff;
+  --color-primary-hover: #0062cc;
+  --color-primary-glow: rgba(0, 122, 255, 0.08);
+
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.06);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 64px rgba(0, 0, 0, 0.12);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.theme-toggle:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  border-color: var(--color-text-tertiary);
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+[data-theme="dark"] .light-only { display: none !important; }
+[data-theme="dark"] .dark-only { display: flex !important; }
+[data-theme="light"] .dark-only { display: none !important; }
+[data-theme="light"] .light-only { display: flex !important; }
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -122,25 +175,23 @@ body {
 
 .nav-link:hover {
     color: var(--color-text);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--color-bg-tertiary);
 }
 
 /* System Pulse Bar - Floating Premium Look */
 /* System Pulse Bar - Floating Premium Look */
 /* System Pulse Bar - Premium Block Look */
 .pulse-bar {
-    background: rgba(10, 10, 12, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 8px 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    padding: 10px 0;
     font-size: 11px;
-    position: relative; /* No longer sticky */
     z-index: 10;
-    margin: 0 auto;
-    max-width: 1000px;
-    margin-top: 24px; /* Positive margin for separation */
-    margin-bottom: 32px; /* Space below */
+    margin: 24px auto 32px;
+    max-width: 1024px;
     border-radius: 100px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s ease;
+    box-shadow: var(--shadow-md);
 }
 
 .pulse-container {
@@ -156,7 +207,7 @@ body {
     align-items: center;
     gap: 8px;
     padding-right: 16px;
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid var(--color-border-light);
 }
 
 .pulse-live-dot {
@@ -197,7 +248,7 @@ body {
 
 .pulse-icon {
     color: var(--color-primary);
-    background: rgba(41, 151, 255, 0.1);
+    background: var(--color-primary-glow);
     padding: 5px;
     border-radius: 8px;
     display: flex;
@@ -234,7 +285,7 @@ body {
 .pulse-progress {
     width: 50px;
     height: 3px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--color-bg-tertiary);
     border-radius: 99px;
     overflow: hidden;
     position: relative;
@@ -376,13 +427,13 @@ main {
 .btn-primary {
     background: var(--color-text);
     color: var(--color-bg);
-    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
-    background: #f0f0f0;
+    filter: brightness(0.9);
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.15);
+    box-shadow: var(--shadow-md);
 }
 
 .btn-secondary {
@@ -661,12 +712,18 @@ select.form-control {
   width: 100%;
   padding: 12px 14px;
   font-size: 14px;
-  background: var(--color-bg);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text);
   font-family: inherit;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
+}
+
+.form-group input:hover,
+.form-group textarea:hover,
+.form-group select:hover {
+  border-color: var(--color-text-tertiary);
 }
 
 .form-group select,
@@ -1069,10 +1126,10 @@ select.form-control:focus {
 }
 
 .preview-content {
-  background: var(--color-bg);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-border);
 }
 
 .preview-content pre {
@@ -1104,7 +1161,7 @@ select.form-control:focus {
   cursor: pointer;
   font-weight: 500;
   color: var(--color-text-secondary);
-  background: var(--color-bg);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   transition: all 0.2s ease;
 }
@@ -1475,9 +1532,9 @@ select.form-control:focus {
   gap: 8px;
   margin-bottom: 24px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--color-bg);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-light);
 }
 
 .project-services-preview:empty {
@@ -1489,15 +1546,15 @@ select.form-control:focus {
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   transition: all 0.2s ease;
 }
 
 .mini-service:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
 }
 
 .project-actions {
@@ -1506,7 +1563,7 @@ select.form-control:focus {
   gap: 12px;
   margin-top: auto;
   padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .badge {
@@ -1521,8 +1578,8 @@ select.form-control:focus {
 }
 
 .badge-secondary {
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--color-primary-glow);
   color: var(--color-primary);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid var(--color-border-light);
 }
 

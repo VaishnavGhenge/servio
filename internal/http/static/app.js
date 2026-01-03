@@ -2,7 +2,25 @@
 
 document.addEventListener("DOMContentLoaded", function () {
   initLogControls();
+  initThemeToggle();
+  initDashboardRefresh();
 });
+
+// Initialize theme toggle
+function initThemeToggle() {
+  const toggle = document.getElementById("theme-toggle");
+  if (!toggle) return;
+
+  // Initial setup based on localStorage (already applied in head, but for UI consistency)
+  const currentTheme = localStorage.getItem("theme") || "dark";
+  
+  toggle.addEventListener("click", () => {
+    const newTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    
+    document.documentElement.setAttribute("data-theme", newTheme);
+    localStorage.setItem("theme", newTheme);
+  });
+}
 
 // Initialize log controls on project detail page
 function initLogControls() {
@@ -419,8 +437,3 @@ function updateProjectCards(projects, stats) {
   });
 }
 
-// Initialize on load
-document.addEventListener("DOMContentLoaded", () => {
-  initLogControls();
-  initDashboardRefresh();
-});
