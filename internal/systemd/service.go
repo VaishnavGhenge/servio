@@ -10,6 +10,12 @@ import (
 	"servio/internal/storage"
 )
 
+// BlueprintProvider is an interface for getting blueprints
+type BlueprintProvider interface {
+	Get(serviceType string) (interface{}, bool)
+	IsManaged(serviceType string) bool
+}
+
 // ServiceManager defines the interface for managing system services
 type ServiceManager interface {
 	Start(ctx context.Context, serviceName string) error
@@ -29,11 +35,18 @@ type ServiceManager interface {
 }
 
 // Manager provides systemd service management and implements ServiceManager
-type Manager struct{}
+type Manager struct {
+	blueprints BlueprintProvider
+}
 
 // NewManager creates a new systemd Manager
 func NewManager() *Manager {
 	return &Manager{}
+}
+
+// SetBlueprints sets the blueprint registry for the manager
+func (m *Manager) SetBlueprints(blueprints BlueprintProvider) {
+	m.blueprints = blueprints
 }
 
 // Start starts a systemd service

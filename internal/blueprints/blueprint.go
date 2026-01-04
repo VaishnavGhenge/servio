@@ -69,8 +69,6 @@ func NewRegistry() *Registry {
 
 	// Register built-in blueprints
 	// Add new blueprints here:
-	r.Register(&PostgresBlueprint{})
-	r.Register(&RedisBlueprint{})
 	r.Register(&DjangoBlueprint{})
 	// r.Register(&MongoDBBlueprint{})
 	// r.Register(&NodeBlueprint{})

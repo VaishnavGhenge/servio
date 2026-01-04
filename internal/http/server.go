@@ -21,6 +21,19 @@ type Server struct {
 	nginxManager *nginx.Manager
 }
 
+// blueprintAdapter wraps blueprints.Registry to match systemd.BlueprintProvider
+type blueprintAdapter struct {
+	registry *blueprints.Registry
+}
+
+func (a *blueprintAdapter) Get(serviceType string) (interface{}, bool) {
+	return a.registry.Get(serviceType)
+}
+
+func (a *blueprintAdapter) IsManaged(serviceType string) bool {
+	return a.registry.IsManaged(serviceType)
+}
+
 // NewServer creates a new HTTP server
 func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManager) *Server {
 	s := &Server{
@@ -29,6 +42,12 @@ func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManag
 		svcManager:   svcManager,
 		blueprints:   blueprints.NewRegistry(),
 		nginxManager: nginx.NewManager(),
+	}
+
+	// Set blueprints on the service manager if it supports it
+	if mgr, ok := svcManager.(*systemd.Manager); ok {
+		adapter := &blueprintAdapter{registry: s.blueprints}
+		mgr.SetBlueprints(adapter)
 	}
 
 	// Initial distro configuration from settings

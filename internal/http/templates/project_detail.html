@@ -1,63 +1,75 @@
 {{template "layout" .}}
-
 {{define "content"}}
-<div class="project-detail">
-    <div class="breadcrumb-row">
-        <a href="/" class="back-link-subtle">{{template "icon-arrow-left"}} Dashboard</a>
-    </div>
-
-    <header class="page-header">
+<div class="project-detail-page">
+    <div class="page-header">
         <div class="header-left">
-            <h1>{{.Project.Name}}</h1>
-            {{if .Project.Domain}}<span class="domain-badge">{{.Project.Domain}}</span>{{end}}
+            <a href="/" class="btn btn-icon" title="Back to Dashboard">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </a>
+            <div class="project-title">
+                <h1>{{.Project.Name}}</h1>
+                <a href="http://{{.Project.Domain}}" target="_blank" class="domain-badge">{{.Project.Domain}}</a>
+            </div>
         </div>
         <div class="header-actions">
             <a href="/services/new?project_id={{.Project.ID}}" class="btn btn-primary">Add Service</a>
             <a href="/projects/{{.Project.ID}}/edit" class="btn btn-secondary">Edit Project</a>
-            <form method="POST" action="/projects/{{.Project.ID}}/delete" class="inline-form"
-                onsubmit="return confirm('Are you sure you want to delete this project and all its services?')">
-                <button type="submit" class="btn btn-danger">Delete Project</button>
+            <form method="POST" action="/projects/{{.Project.ID}}/delete" class="inline-form" onsubmit="return confirm('Delete this project and all its services? This cannot be undone.');">
+                <button type="submit" class="btn btn-outline-danger">Delete Project</button>
             </form>
         </div>
-    </header>
+    </div>
 
     {{if .Error}}
     <div class="alert alert-error">
-        <span class="alert-icon">{{template "icon-alert"}}</span>
-        {{.Error}}
+        <div class="alert-content">
+            <span>{{.Error}}</span>
+            {{if .FixService}}
+            <form method="POST" action="/services/{{.FixService}}/provision" class="inline-form" style="margin-left: 16px;" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Installing...';">
+                <button type="submit" class="btn btn-warning btn-sm">Auto-fix: Install Dependencies</button>
+            </form>
+            {{end}}
+        </div>
     </div>
     {{end}}
 
-    <!-- Nginx Section -->
-    {{if .Project.Domain}}
-    <div class="card nginx-section">
-        <div class="card-title">
-            <span>Nginx Configuration</span>
-            <span class="nginx-status" id="nginx-status">...</span>
-        </div>
-        <div class="nginx-actions">
-            <button class="btn btn-secondary" onclick="togglePreview()">Edit Config</button>
-            <button class="btn btn-secondary" onclick="resetConfig()" id="reset-btn" style="display:none;">Reset to Default</button>
-            <button class="btn btn-primary" onclick="saveAndDeploy()" id="deploy-btn">Save & Deploy</button>
-            <button class="btn btn-danger" onclick="removeNginx()" id="remove-btn" style="display:none;">Remove</button>
-        </div>
-        <div class="nginx-preview" id="nginx-preview" style="display:none;">
-            <div class="config-container">
-                <pre id="nginx-view" class="config-view"></pre>
-                <textarea id="nginx-config" class="config-edit" rows="20" spellcheck="false" oninput="syncEditToView()"></textarea>
-            </div>
-            <div class="nginx-preview-actions">
-                <small id="config-hint">Click "Edit Config" to switch between view and edit modes.</small>
-            </div>
-        </div>
-    </div>
-    {{else}}
-    <div class="card nginx-section-empty">
-        <p>Set a <strong>Domain</strong> on this project to enable Nginx reverse proxy.</p>
-        <a href="/projects/{{.Project.ID}}/edit" class="btn btn-secondary">Edit Project</a>
+    {{if .Success}}
+    <div class="alert alert-success">
+        {{.Success}}
     </div>
     {{end}}
 
+    <div class="detail-grid">
+        <!-- Nginx Configuration Card -->
+        <div class="card nginx-section">
+            <div class="card-title">
+                <span>Nginx Configuration</span>
+                <span class="nginx-status {{if .Project.NginxRaw}}nginx-deployed{{else}}nginx-not-deployed{{end}}">
+                    {{if .Project.NginxRaw}}MODIFIED{{else}}DEFAULT{{end}}
+                </span>
+            </div>
+            
+            <div class="nginx-actions">
+                <button class="btn btn-secondary" onclick="togglePreview()">Edit / View</button>
+                <button class="btn btn-secondary" onclick="closePreview()" id="close-btn" style="display:none;">Close</button>
+                <button class="btn btn-secondary" onclick="resetConfig()" id="reset-btn" style="display:none;">Reset to Default</button>
+                <button class="btn btn-primary" onclick="saveAndDeploy()" id="deploy-btn">Save & Deploy</button>
+                <button class="btn btn-danger" onclick="removeNginx()" id="remove-btn" style="display:none;">Remove</button>
+            </div>
+
+            <div class="nginx-preview" id="nginx-preview" style="display: none;">
+                <div class="nginx-preview-actions">
+                    <small id="config-hint">Click "Edit Config" to modify the configuration.</small>
+                </div>
+                <div id="nginx-view" class="config-view code-block" data-language="nginx"></div>
+                <textarea id="nginx-config" class="config-edit" spellcheck="false"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="section-title">Services</h2>
+    
+    {{if .Project.Services}}
     <div class="services-list">
         {{range .Project.Services}}
         <div class="card service-item-card">
@@ -69,24 +81,26 @@
                 </div>
                 <div class="service-item-actions">
                     {{if eq .Status "running"}}
-                    <form method="POST" action="/services/{{.ID}}/stop" class="inline-form">
+                    <form method="POST" action="/services/{{.ID}}/stop" class="inline-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Stopping...';">
                         <button type="submit" class="btn btn-danger btn-sm">Stop</button>
                     </form>
-                    <form method="POST" action="/services/{{.ID}}/restart" class="inline-form">
+                    <form method="POST" action="/services/{{.ID}}/restart" class="inline-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Restarting...';">
                         <button type="submit" class="btn btn-warning btn-sm">Restart</button>
                     </form>
                     {{else if eq .Status "stopped"}}
-                    <form method="POST" action="/services/{{.ID}}/start" class="inline-form">
+                    <form method="POST" action="/services/{{.ID}}/start" class="inline-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Starting...';">
                         <button type="submit" class="btn btn-success btn-sm">Start</button>
                     </form>
                     {{else}}
-                    <form method="POST" action="/services/{{.ID}}/install" class="inline-form">
+                    <form method="POST" action="/services/{{.ID}}/install" class="inline-form" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Installing...';">
                         <button type="submit" class="btn btn-primary btn-sm">Install</button>
                     </form>
                     {{end}}
+                    <a href="/services/{{.ID}}/edit" class="btn btn-secondary btn-sm">Edit</a>
                     <form method="POST" action="/services/{{.ID}}/delete" class="inline-form" onsubmit="return confirm('Delete this service?')">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
                     </form>
+                    <button class="btn btn-secondary btn-sm" onclick="showServiceLogs('{{.ID}}', '{{.Name}}')">Logs</button>
                 </div>
             </div>
             
@@ -108,52 +122,29 @@
                 </div>
             </details>
         </div>
-        {{else}}
-        <div class="empty-state">
-            <p>No services yet in this project.</p>
-            <a href="/services/new?project_id={{.Project.ID}}" class="btn btn-primary">Add Your First Service</a>
-        </div>
         {{end}}
     </div>
+    {{else}}
+    <div class="empty-state">
+        <p>No services yet in this project.</p>
+        <a href="/services/new?project_id={{.Project.ID}}" class="btn btn-primary">Add Your First Service</a>
+    </div>
+    {{end}}
 </div>
 
-<script data-project-id="{{.Project.ID}}">
-const projectId = document.currentScript.getAttribute('data-project-id');
+<script>
+const projectId = {{.Project.ID}};
 let defaultConfig = '';
 let isCustomized = false;
 
-async function checkNginxStatus() {
-    try {
-        const res = await fetch(`/api/nginx/${projectId}/preview`);
-        const data = await res.json();
-        const statusEl = document.getElementById('nginx-status');
-        const deployBtn = document.getElementById('deploy-btn');
-        const removeBtn = document.getElementById('remove-btn');
-        const resetBtn = document.getElementById('reset-btn');
-        
-        defaultConfig = data.default_config || '';
-        isCustomized = data.is_customized;
-        
-        if (data.installed) {
-            statusEl.textContent = 'Deployed' + (isCustomized ? ' (Modified)' : '');
-            statusEl.className = 'nginx-status nginx-deployed';
-            deployBtn.textContent = 'Save & Re-deploy';
-            removeBtn.style.display = 'inline-flex';
-        } else {
-            statusEl.textContent = 'Not Deployed' + (isCustomized ? ' (Modified)' : '');
-            statusEl.className = 'nginx-status nginx-not-deployed';
-            deployBtn.textContent = 'Save & Deploy';
-            removeBtn.style.display = 'none';
-        }
-    } catch (e) {
-        document.getElementById('nginx-status').textContent = 'Error';
-    }
-}
+// Syntax highlighting logic is in app.js
+// We just need to initialize the Nginx editor logic
 
 async function togglePreview() {
     const preview = document.getElementById('nginx-preview');
     const view = document.getElementById('nginx-view');
     const edit = document.getElementById('nginx-config');
+    const closeBtn = document.getElementById('close-btn');
     const resetBtn = document.getElementById('reset-btn');
     const hint = document.getElementById('config-hint');
     
@@ -173,8 +164,9 @@ async function togglePreview() {
             view.textContent = 'Error loading config';
         }
         preview.style.display = 'block';
+        closeBtn.style.display = 'inline-flex';
         resetBtn.style.display = isCustomized ? 'inline-flex' : 'none';
-        hint.textContent = 'Click "Edit Config" to modify the configuration.';
+        hint.textContent = 'Click "Edit / View" to toggle mode.';
     } else {
         // Toggle between VIEW and EDIT if already open
         if (edit.style.display === 'none') {
@@ -185,9 +177,15 @@ async function togglePreview() {
             view.innerHTML = highlightNginx(edit.value);
             view.style.display = 'block';
             edit.style.display = 'none';
-            hint.textContent = 'View mode. Click "Edit Config" to switch back.';
+            hint.textContent = 'View mode. Click "Edit / View" to switch back.';
         }
     }
+}
+
+function closePreview() {
+    document.getElementById('nginx-preview').style.display = 'none';
+    document.getElementById('close-btn').style.display = 'none';
+    document.getElementById('reset-btn').style.display = 'none';
 }
 
 function syncEditToView() {
@@ -241,7 +239,7 @@ async function saveAndDeploy() {
 
 async function removeNginx() {
     if (!confirm('Remove Nginx configuration for this project?')) return;
-    
+
     try {
         const res = await fetch(`/api/nginx/${projectId}/remove`, { method: 'POST' });
         const data = await res.json();
@@ -258,9 +256,91 @@ async function removeNginx() {
     }
 }
 
+async function checkNginxStatus() {
+    try {
+        const res = await fetch(`/api/nginx/${projectId}/preview`);
+        const data = await res.json();
+        const statusEl = document.getElementById('nginx-status');
+        if (statusEl) {
+            if (data.installed) {
+                statusEl.textContent = '✓ Deployed';
+                statusEl.className = 'status-badge status-running';
+            } else {
+                statusEl.textContent = 'Not Deployed';
+                statusEl.className = 'status-badge status-stopped';
+            }
+        }
+    } catch (e) {
+        console.error('Failed to check nginx status:', e);
+    }
+}
+
 // Check status on load
 if (document.getElementById('nginx-status')) {
     checkNginxStatus();
+}
+
+// Sync edits to view in real-time
+document.getElementById('nginx-config').addEventListener('input', syncEditToView);
+</script>
+
+<!-- Logs Modal -->
+<div id="logs-modal" class="modal">
+    <div class="modal-content logs-modal-content">
+        <div class="modal-header">
+            <h3>Service Logs: <span id="logs-service-name"></span></h3>
+            <button class="close-btn" onclick="closeLogsModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <pre id="logs-output" class="logs-output">Loading logs...</pre>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary btn-sm" onclick="refreshLogs()">Refresh</button>
+            <button class="btn btn-secondary btn-sm" onclick="closeLogsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentServiceId = null;
+
+async function showServiceLogs(serviceId, serviceName) {
+    currentServiceId = serviceId;
+    document.getElementById('logs-service-name').textContent = serviceName;
+    document.getElementById('logs-modal').style.display = 'flex';
+    document.getElementById('logs-output').textContent = 'Loading logs...';
+    await refreshLogs();
+}
+
+function closeLogsModal() {
+    document.getElementById('logs-modal').style.display = 'none';
+    currentServiceId = null;
+}
+
+async function refreshLogs() {
+    if (!currentServiceId) return;
+    const output = document.getElementById('logs-output');
+    try {
+        const res = await fetch(`/api/services/${currentServiceId}/logs`);
+        const data = await res.json();
+        
+        if (data.error) {
+            output.textContent = 'Error: ' + data.error;
+        } else if (!data.logs) {
+            output.textContent = 'No logs available.';
+        } else {
+            output.textContent = data.logs;
+        }
+    } catch (e) {
+        output.textContent = 'Failed to fetch logs: ' + e.message;
+    }
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('logs-modal');
+    if (event.target == modal) {
+        closeLogsModal();
+    }
 }
 </script>
 {{end}}

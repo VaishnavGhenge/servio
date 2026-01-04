@@ -262,9 +262,10 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":   project.Name,
-		"Project": project,
-		"Error":   r.URL.Query().Get("error"),
+		"Title":      project.Name,
+		"Project":    project,
+		"Error":      r.URL.Query().Get("error"),
+		"FixService": r.URL.Query().Get("fix_service"),
 	}
 
 	render(w, "project_detail.html", data)
@@ -581,6 +582,7 @@ func (s *Server) handleNewService(w http.ResponseWriter, r *http.Request) {
 			ProjectID:   projectID,
 			Name:        r.FormValue("name"),
 			Type:        r.FormValue("type"),
+			Version:     r.FormValue("version"),
 			Port:        port,
 			GitRepoURL:  r.FormValue("git_repo_url"),
 			Command:     r.FormValue("command"),
@@ -588,6 +590,7 @@ func (s *Server) handleNewService(w http.ResponseWriter, r *http.Request) {
 			User:        r.FormValue("user"),
 			Environment: r.FormValue("environment"),
 			AutoRestart: r.FormValue("auto_restart") == "on",
+			Config:      "",
 			SystemdRaw:  r.FormValue("systemd_raw"),
 			NginxRaw:    r.FormValue("nginx_raw"),
 		}
@@ -653,6 +656,23 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 			actionErr = s.svcManager.InstallService(r.Context(), service)
 			if actionErr == nil {
 				s.svcManager.Enable(r.Context(), service.ServiceName())
+				actionErr = s.svcManager.Start(r.Context(), service.ServiceName())
+			}
+		case "provision":
+			// Install dependencies using blueprint
+			bp, ok := s.blueprints.Get(service.Type)
+			if !ok {
+				actionErr = fmt.Errorf("no blueprint found for service type '%s'", service.Type)
+			} else {
+				actionErr = bp.InstallDependencies(r.Context(), service.Version)
+				if actionErr == nil {
+					// After provisioning, try to install and start
+					actionErr = s.svcManager.InstallService(r.Context(), service)
+					if actionErr == nil {
+						s.svcManager.Enable(r.Context(), service.ServiceName())
+						actionErr = s.svcManager.Start(r.Context(), service.ServiceName())
+					}
+				}
 			}
 		case "uninstall":
 			actionErr = s.svcManager.UninstallService(r.Context(), service.ServiceName())
@@ -664,12 +684,112 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if actionErr != nil {
-			http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s", service.ProjectID, actionErr.Error()), http.StatusSeeOther)
+			// Include service_id if the error is fixable via provisioning
+			errStr := actionErr.Error()
+			if strings.Contains(errStr, "not found") || strings.Contains(errStr, "does not exist") {
+				http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s&fix_service=%d", service.ProjectID, errStr, id), http.StatusSeeOther)
+			} else {
+				http.Redirect(w, r, fmt.Sprintf("/projects/%d?error=%s", service.ProjectID, errStr), http.StatusSeeOther)
+			}
 			return
 		}
 
 		http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
 		return
+	}
+
+	// Handle edit form
+	if len(parts) > 1 && parts[1] == "edit" {
+		if r.Method == http.MethodGet {
+			// If command is empty but we have a blueprint, generate it for display
+			if service.Command == "" && service.Type != "" && service.Type != "custom" {
+				if bpInterface, ok := s.blueprints.Get(service.Type); ok {
+					if bp, ok := bpInterface.(interface {
+						GenerateCommand(*storage.Service) string
+					}); ok {
+						service.Command = bp.GenerateCommand(service)
+					}
+				}
+			}
+
+			data := map[string]interface{}{
+				"Title":     "Edit Service",
+				"ProjectID": service.ProjectID,
+				"Service":   service,
+				"Edit":      true,
+			}
+			render(w, "service_form.html", data)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			slog.Info("Updating service", "service_id", id, "name", service.Name)
+
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Invalid form data", http.StatusBadRequest)
+				return
+			}
+			port, _ := strconv.Atoi(r.FormValue("port"))
+
+			// For blueprint-managed services, only clear the command if it matches what the blueprint would generate.
+			// This allows users to manually override the command while still keeping it dynamic by default.
+			command := r.FormValue("command")
+			if bpInterface, ok := s.blueprints.Get(service.Type); ok {
+				if bp, ok := bpInterface.(interface {
+					GenerateCommand(*storage.Service) string
+				}); ok {
+					// Create a temporary service object with the NEW values to see what the generated command WOULD be
+					tempSvc := *service
+					tempSvc.Port = port
+					generatedCmd := bp.GenerateCommand(&tempSvc)
+
+					if command == generatedCmd {
+						slog.Info("Command matches blueprint, clearing for dynamic generation", "service", service.Name)
+						command = ""
+					}
+				}
+			}
+
+			req := &storage.UpdateServiceRequest{
+				Name:        r.FormValue("name"),
+				Port:        port,
+				GitRepoURL:  r.FormValue("git_repo_url"),
+				Command:     command,
+				WorkingDir:  r.FormValue("working_dir"),
+				User:        r.FormValue("user"),
+				Environment: r.FormValue("environment"),
+				AutoRestart: r.FormValue("auto_restart") == "on",
+				Config:      "",
+				SystemdRaw:  r.FormValue("systemd_raw"),
+				NginxRaw:    r.FormValue("nginx_raw"),
+			}
+
+			service, err = s.store.UpdateService(r.Context(), id, req)
+			if err != nil {
+				slog.Error("Failed to update service", "error", err)
+				data := map[string]interface{}{
+					"Title":     "Edit Service",
+					"ProjectID": service.ProjectID,
+					"Service":   req,
+					"Error":     err.Error(),
+					"Edit":      true,
+				}
+				render(w, "service_form.html", data)
+				return
+			}
+
+			// Reinstall the service with updated configuration and restart it
+			slog.Info("Reinstalling and restarting service after update", "service", service.Name)
+			if err := s.svcManager.InstallService(r.Context(), service); err != nil {
+				slog.Warn("Failed to reinstall service", "error", err)
+			}
+			if err := s.svcManager.Restart(r.Context(), service.ServiceName()); err != nil {
+				slog.Warn("Failed to restart service after update", "error", err)
+			}
+
+			http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
+			return
+		}
 	}
 
 	// For now, if no action, just redirect to project

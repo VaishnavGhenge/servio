@@ -3,7 +3,7 @@
 {{define "content"}}
 <div class="service-form-page">
     <header class="page-header">
-        <h1>Add Service</h1>
+        <h1>{{if .Edit}}Edit Service{{else}}Add Service{{end}}</h1>
         <a href="/projects/{{.ProjectID}}" class="btn btn-secondary">Cancel</a>
     </header>
 
@@ -29,19 +29,20 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="type">Service Type</label>
-                    <select id="type" name="type" class="form-control">
+                    <select id="type" name="type" class="form-control" {{if .Edit}}disabled{{end}}>
                         <option value="custom" {{if eq .Service.Type "custom"}}selected{{end}}>Custom Command</option>
-                        <option value="postgres" {{if eq .Service.Type "postgres"}}selected{{end}}>PostgreSQL</option>
-                        <option value="redis" {{if eq .Service.Type "redis"}}selected{{end}}>Redis</option>
                         <option value="django" {{if eq .Service.Type "django"}}selected{{end}}>Django/Gunicorn</option>
                     </select>
+                    {{if .Edit}}<input type="hidden" name="type" value="{{.Service.Type}}">{{end}}
+                    {{if .Edit}}<small>Service type cannot be changed</small>{{end}}
                 </div>
 
                 <div class="form-group" id="version-group">
                     <label for="version">Version</label>
-                    <select id="version" name="version" class="form-control">
-                        <option value="">Latest</option>
+                    <select id="version" name="version" class="form-control" {{if .Edit}}disabled{{end}}>
+                        <option value="{{.Service.Version}}">{{if .Service.Version}}{{.Service.Version}}{{else}}Latest{{end}}</option>
                     </select>
+                    {{if .Edit}}<input type="hidden" name="version" value="{{.Service.Version}}">{{end}}
                 </div>
             </div>
 
@@ -65,17 +66,19 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="port">Port (for Nginx)</label>
+                    <label for="port">Service Port</label>
                     <input type="number" id="port" name="port" value="{{if .Service.Port}}{{.Service.Port}}{{end}}"
                         placeholder="8000" min="1" max="65535">
-                    <small>Optional. The port this service listens on.</small>
+                    <small id="port-hint">Internal port the service listens on.</small>
                 </div>
             </div>
+
 
             <div class="form-group">
                 <label for="environment">Environment Variables</label>
                 <textarea id="environment" name="environment" rows="3"
                     placeholder="PORT=8080&#10;DEBUG=true">{{.Service.Environment}}</textarea>
+                <small>Additional environment variables (KEY=VALUE per line)</small>
             </div>
 
             <div class="form-group checkbox-group">
@@ -104,7 +107,7 @@
 
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Create Service</button>
+                <button type="submit" class="btn btn-primary">{{if .Edit}}Update Service{{else}}Create Service{{end}}</button>
             </div>
         </form>
 
@@ -143,25 +146,11 @@ WantedBy=multi-user.target</pre>
 <script>
 (function() {
     const versionMap = {
-        postgres: ['16', '15', '14', '13'],
-        redis: ['7', '6'],
         django: ['22.0', '21.2', '20.1'],
         custom: []
     };
 
     const typeDefaults = {
-        postgres: {
-            command: '/usr/pgsql-16/bin/postgres -D /var/lib/pgsql/16/data',
-            user: 'postgres',
-            working_dir: '/var/lib/pgsql',
-            hint: 'Auto-configured for PostgreSQL.'
-        },
-        redis: {
-            command: '/usr/bin/redis-server /etc/redis/redis.conf',
-            user: 'redis',
-            working_dir: '/var/lib/redis',
-            hint: 'Auto-configured for Redis.'
-        },
         django: {
             command: 'gunicorn --workers 2 --bind 0.0.0.0:8000 app.wsgi:application',
             user: 'www-data',
@@ -189,10 +178,22 @@ WantedBy=multi-user.target</pre>
     const autoRestartInput = document.getElementById('auto_restart');
     const systemdPreview = document.getElementById('systemd-preview');
 
+    // Parse existing service config if in edit mode
+    const existingConfig = {{if .Service.Config}}{{.Service.Config}}{{else}}'{}'{{end}};
+    let serviceConfig = {};
+    try {
+        serviceConfig = JSON.parse(existingConfig);
+    } catch(e) {
+        serviceConfig = {};
+    }
+
+    // Check if we're in edit mode
+    const isEditMode = {{if .Edit}}true{{else}}false{{end}};
+
     function updateVersionOptions() {
         const type = typeSelect.value;
         const versions = versionMap[type] || [];
-        
+
         versionSelect.innerHTML = '<option value="">Latest</option>';
         versions.forEach(v => {
             const opt = document.createElement('option');
@@ -203,23 +204,34 @@ WantedBy=multi-user.target</pre>
 
         versionGroup.style.display = versions.length > 0 ? 'block' : 'none';
 
-        // Apply defaults for managed types
-        const defaults = typeDefaults[type];
-        if (defaults && type !== 'custom') {
-            commandInput.value = defaults.command;
-            commandInput.placeholder = defaults.command;
-            commandHint.textContent = defaults.hint;
-            userInput.value = defaults.user;
-            workingDirInput.value = defaults.working_dir;
+        const portHint = document.getElementById('port-hint');
+        portHint.textContent = 'Port for Nginx proxy (leave empty if not exposing via web).';
+
+        // Only apply defaults when NOT in edit mode
+        if (!isEditMode) {
+            const defaults = typeDefaults[type];
+            if (defaults && type !== 'custom') {
+                commandInput.value = defaults.command;
+                commandInput.placeholder = defaults.command;
+                commandHint.textContent = defaults.hint;
+                userInput.value = defaults.user;
+                workingDirInput.value = defaults.working_dir;
+            } else {
+                // Clear or reset for custom
+                commandInput.value = '';
+                commandInput.placeholder = 'npm start';
+                userInput.value = '';
+                userInput.placeholder = 'www-data';
+                workingDirInput.value = '';
+                workingDirInput.placeholder = '/var/www/my-app';
+                commandHint.textContent = 'The start command for your service.';
+            }
         } else {
-            // Clear or reset for custom
-            commandInput.value = '';
-            commandInput.placeholder = 'npm start';
-            userInput.value = '';
-            userInput.placeholder = 'www-data';
-            workingDirInput.value = '';
-            workingDirInput.placeholder = '/var/www/my-app';
-            commandHint.textContent = 'The start command for your service.';
+            // In edit mode, just update hints
+            const defaults = typeDefaults[type];
+            if (defaults) {
+                commandHint.textContent = defaults.hint;
+            }
         }
 
         updatePreview();
@@ -303,6 +315,7 @@ WantedBy=multi-user.target`;
     // Initialize
     updateVersionOptions();
     updateSystemdView();
+
 })();
 </script>
 {{end}}
