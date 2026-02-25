@@ -5,71 +5,44 @@ import (
 	"net/http"
 	"time"
 
-	"servio/internal/blueprints"
-	"servio/internal/nginx"
+	"servio/internal/deploy"
 	"servio/internal/storage"
 	"servio/internal/systemd"
 )
 
-// Server represents the HTTP server
+// Server is the HTTP server.
 type Server struct {
 	addr         string
 	httpServer   *http.Server
 	store        storage.Store
 	svcManager   systemd.ServiceManager
-	blueprints   *blueprints.Registry
-	nginxManager *nginx.Manager
+	deployMgr    *deploy.Manager
 }
 
-// blueprintAdapter wraps blueprints.Registry to match systemd.BlueprintProvider
-type blueprintAdapter struct {
-	registry *blueprints.Registry
-}
-
-func (a *blueprintAdapter) Get(serviceType string) (interface{}, bool) {
-	return a.registry.Get(serviceType)
-}
-
-func (a *blueprintAdapter) IsManaged(serviceType string) bool {
-	return a.registry.IsManaged(serviceType)
-}
-
-// NewServer creates a new HTTP server
-func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManager) *Server {
+// NewServer creates and configures the HTTP server.
+func NewServer(addr string, store storage.Store, svcManager systemd.ServiceManager, deployMgr *deploy.Manager) *Server {
 	s := &Server{
-		addr:         addr,
-		store:        store,
-		svcManager:   svcManager,
-		blueprints:   blueprints.NewRegistry(),
-		nginxManager: nginx.NewManager(),
-	}
-
-	// Set blueprints on the service manager if it supports it
-	if mgr, ok := svcManager.(*systemd.Manager); ok {
-		adapter := &blueprintAdapter{registry: s.blueprints}
-		mgr.SetBlueprints(adapter)
-	}
-
-	// Initial distro configuration from settings
-	if distro, err := store.GetSetting(context.Background(), "distro"); err == nil && distro != "" {
-		s.nginxManager.Configure(distro)
+		addr:       addr,
+		store:      store,
+		svcManager: svcManager,
+		deployMgr:  deployMgr,
 	}
 
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      BasicAuth(Logger(CORS(mux))),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:    addr,
+		Handler: BasicAuth(Logger(CORS(mux))),
+		// Note: WriteTimeout is intentionally omitted for SSE streaming endpoints.
+		// Individual handlers use request context cancellation instead.
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 
 	return s
 }
 
-// registerRoutes sets up all routes
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// UI routes
 	mux.HandleFunc("/", s.handleDashboard)
@@ -84,26 +57,20 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/services", s.handleAPIServices)
 	mux.HandleFunc("/api/services/", s.handleAPIService)
 	mux.HandleFunc("/api/stats", s.handleAPIStats)
-	mux.HandleFunc("/api/blueprints", s.handleAPIBlueprints)
-	mux.HandleFunc("/api/nginx/", s.handleAPINginx)
-	mux.HandleFunc("/api/settings/", s.handleAPISettings)
+	mux.HandleFunc("/api/deployments/", s.handleAPIDeployment)
 
-	// Static assets with no-cache headers
+	// Static assets
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(getStaticFS())))
 	mux.Handle("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
 		staticHandler.ServeHTTP(w, r)
 	}))
 }
 
-// Start starts the HTTP server
 func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }

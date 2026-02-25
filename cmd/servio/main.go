@@ -10,25 +10,22 @@ import (
 	"time"
 
 	"servio/internal/config"
+	"servio/internal/deploy"
 	httpserver "servio/internal/http"
 	"servio/internal/storage"
 	"servio/internal/systemd"
 )
 
 func main() {
-	// Initialize configuration
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Initialize structured logger
 	setupLogger(cfg.LogLevel)
+	slog.Info("Starting Servio", "version", "2.0.0")
 
-	slog.Info("Starting Servio", "version", "1.0.0")
-
-	// Initialize storage
 	store, err := storage.New(cfg.DBPath)
 	if err != nil {
 		slog.Error("Failed to initialize storage", "error", err, "path", cfg.DBPath)
@@ -36,36 +33,29 @@ func main() {
 	}
 	defer store.Close()
 
-	// Initialize systemd service manager
 	svcManager := systemd.NewManager()
+	deployMgr := deploy.NewManager(store, svcManager)
+	server := httpserver.NewServer(cfg.Addr, store, svcManager, deployMgr)
 
-	// Initialize HTTP server
-	server := httpserver.NewServer(cfg.Addr, store, svcManager)
-
-	// Start server in goroutine
 	go func() {
-		slog.Info("🚀 Server starting", "addr", cfg.Addr)
+		slog.Info("Server starting", "addr", cfg.Addr)
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server error", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slog.Info("Shutting down server...")
-
-	// Graceful shutdown with timeout
+	slog.Info("Shutting down...")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("Server shutdown error", "error", err)
 	}
-
 	slog.Info("Server stopped")
 }
 
@@ -74,8 +64,6 @@ func setupLogger(level string) {
 	switch level {
 	case "debug":
 		slogLevel = slog.LevelDebug
-	case "info":
-		slogLevel = slog.LevelInfo
 	case "warn":
 		slogLevel = slog.LevelWarn
 	case "error":
@@ -83,8 +71,6 @@ func setupLogger(level string) {
 	default:
 		slogLevel = slog.LevelInfo
 	}
-
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel})
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
+	slog.SetDefault(slog.New(handler))
 }

@@ -2,195 +2,112 @@ package storage
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"fmt"
-	"strings"
-
-	_ "modernc.org/sqlite"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
 )
 
-// Store defines the interface for project and service persistence
+// Store defines the persistence interface.
 type Store interface {
-	// Project methods
+	// Projects
 	CreateProject(ctx context.Context, req *CreateProjectRequest) (*Project, error)
 	GetProject(ctx context.Context, id int64) (*Project, error)
-	GetProjectByName(ctx context.Context, name string) (*Project, error)
 	ListProjects(ctx context.Context) ([]*Project, error)
 	UpdateProject(ctx context.Context, id int64, req *UpdateProjectRequest) (*Project, error)
-	UpdateProjectNginxRaw(ctx context.Context, id int64, nginxRaw string) (*Project, error)
 	DeleteProject(ctx context.Context, id int64) error
 
-	// Service methods
+	// Services
 	CreateService(ctx context.Context, req *CreateServiceRequest) (*Service, error)
 	GetService(ctx context.Context, id int64) (*Service, error)
 	ListServicesByProject(ctx context.Context, projectID int64) ([]*Service, error)
 	UpdateService(ctx context.Context, id int64, req *UpdateServiceRequest) (*Service, error)
 	DeleteService(ctx context.Context, id int64) error
 
-	// Settings methods
-	GetSetting(ctx context.Context, key string) (string, error)
-	SetSetting(ctx context.Context, key string, value string) error
+	// Deployments
+	CreateDeployment(ctx context.Context, serviceID int64) (*Deployment, error)
+	GetDeployment(ctx context.Context, id int64) (*Deployment, error)
+	ListDeploymentsByService(ctx context.Context, serviceID int64) ([]*Deployment, error)
+	UpdateDeploymentStatus(ctx context.Context, id int64, status, log string, finishedAt *time.Time) error
 
 	Close() error
 }
 
-// Storage handles all database operations and implements the Store interface
-type Storage struct {
-	db *sql.DB
+// dbData is the on-disk JSON structure.
+type dbData struct {
+	Projects    []*Project    `json:"projects"`
+	Services    []*Service    `json:"services"`
+	Deployments []*Deployment `json:"deployments"`
+	NextID      int64         `json:"next_id"`
 }
 
-// New creates a new Storage instance and initializes the database
-func New(dbPath string) (*Storage, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+// Storage is the JSON-file backed implementation of Store.
+type Storage struct {
+	mu   sync.RWMutex
+	path string
+	data dbData
+}
+
+// New opens (or creates) the JSON storage file.
+func New(path string) (*Storage, error) {
+	s := &Storage{path: path}
+	if err := s.load(); err != nil {
+		return nil, err
 	}
-
-	// Enable WAL mode for better concurrent access
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Enable Foreign Keys
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
-	}
-
-	s := &Storage{db: db}
-
-	if err := s.migrate(); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
-	}
-
 	return s, nil
 }
 
-// Close closes the database connection
-func (s *Storage) Close() error {
-	return s.db.Close()
+func (s *Storage) Close() error { return nil }
+
+func (s *Storage) load() error {
+	raw, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		s.data = dbData{NextID: 1}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read storage file: %w", err)
+	}
+	return json.Unmarshal(raw, &s.data)
 }
 
-// migrate creates the database schema and handles data migration
-func (s *Storage) migrate() error {
-	// Check if we need to migrate from v1 (flat projects) to v2 (Project + Services)
-	var hasServices bool
-	err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='services'").Scan(&hasServices)
+// save atomically writes data to disk (write temp → rename).
+func (s *Storage) save() error {
+	raw, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	if !hasServices {
-		// New Installation or v1 migration
-		var hasProjects bool
-		s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='projects'").Scan(&hasProjects)
-
-		if hasProjects {
-			// Migrate v1 to v2
-			_, err = s.db.Exec(`ALTER TABLE projects RENAME TO projects_v1`)
-			if err != nil {
-				return fmt.Errorf("failed to rename projects table: %w", err)
-			}
-		}
-
-		schema := `
-		CREATE TABLE projects (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
-			description TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE services (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			project_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			type TEXT NOT NULL,
-			version TEXT,
-			git_repo_url TEXT,
-			command TEXT NOT NULL,
-			working_dir TEXT,
-			user TEXT DEFAULT 'root',
-			environment TEXT,
-			auto_restart INTEGER DEFAULT 1,
-			config TEXT,
-			systemd_raw TEXT,
-			nginx_raw TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-			UNIQUE(project_id, name)
-		);
-
-		CREATE TABLE settings (
-			key TEXT PRIMARY KEY,
-			value TEXT
-		);
-
-		CREATE INDEX idx_services_project_id ON services(project_id);
-		CREATE INDEX idx_projects_name ON projects(name);
-		`
-
-		if _, err := s.db.Exec(schema); err != nil {
-			return fmt.Errorf("failed to create v2 schema: %w", err)
-		}
-		// ... existing migration logic ...
-	} else {
-		// Incremental migration for Phase 5 (Expert Overrides)
-		_, err = s.db.Exec("ALTER TABLE services ADD COLUMN systemd_raw TEXT")
-		if err != nil && !isColumnExistsError(err) {
-			return fmt.Errorf("failed to add systemd_raw column: %w", err)
-		}
-
-		_, err = s.db.Exec("ALTER TABLE services ADD COLUMN nginx_raw TEXT")
-		if err != nil && !isColumnExistsError(err) {
-			return fmt.Errorf("failed to add nginx_raw column: %w", err)
-		}
-
-		// Migration for Phase 7 (Nginx at project level)
-		_, err = s.db.Exec("ALTER TABLE projects ADD COLUMN domain TEXT")
-		if err != nil && !isColumnExistsError(err) {
-			return fmt.Errorf("failed to add domain column: %w", err)
-		}
-
-		_, err = s.db.Exec("ALTER TABLE projects ADD COLUMN nginx_raw TEXT")
-		if err != nil && !isColumnExistsError(err) {
-			return fmt.Errorf("failed to add nginx_raw column to projects: %w", err)
-		}
-
-		// Migration for Phase 7 (Service port for Nginx proxy)
-		_, err = s.db.Exec("ALTER TABLE services ADD COLUMN port INTEGER DEFAULT 0")
-		if err != nil && !isColumnExistsError(err) {
-			return fmt.Errorf("failed to add port column: %w", err)
-		}
-
-		// Settings table
-		_, err = s.db.Exec(`
-			CREATE TABLE IF NOT EXISTS settings (
-				key TEXT PRIMARY KEY,
-				value TEXT
-			)
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to create settings table: %w", err)
-		}
+	dir := filepath.Dir(s.path)
+	if dir == "" {
+		dir = "."
 	}
+	tmp, err := os.CreateTemp(dir, "servio-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
 
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
 	return nil
 }
 
-// isColumnExistsError checks if the error is due to column already existing
-func isColumnExistsError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	// SQLite returns "duplicate column name" error
-	return strings.Contains(errStr, "duplicate column name") ||
-		strings.Contains(errStr, "no column named")
-}
-
-// DB returns the underlying database connection for advanced queries
-func (s *Storage) DB() *sql.DB {
-	return s.db
+func (s *Storage) nextID() int64 {
+	id := s.data.NextID
+	s.data.NextID++
+	return id
 }
