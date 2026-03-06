@@ -2,271 +2,315 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 )
 
-// --- Project Methods ---
+// ================== Projects ==================
 
-// CreateProject creates a new project group
-func (s *Storage) CreateProject(ctx context.Context, req *CreateProjectRequest) (*Project, error) {
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects (name, description, domain)
-		VALUES (?, ?, ?)
-	`, req.Name, req.Description, req.Domain)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create project: %w", err)
+func (s *Storage) CreateProject(_ context.Context, req *CreateProjectRequest) (*Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	p := &Project{
+		ID:          s.nextID(),
+		Name:        req.Name,
+		Description: req.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	s.data.Projects = append(s.data.Projects, p)
+	if err := s.save(); err != nil {
+		return nil, err
 	}
-
-	return s.GetProject(ctx, id)
+	return clone(p), nil
 }
 
-// GetProject retrieves a project by ID, including its services
-func (s *Storage) GetProject(ctx context.Context, id int64) (*Project, error) {
-	p := &Project{}
-	var domain, nginxRaw sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, COALESCE(domain, ''), COALESCE(nginx_raw, ''), created_at, updated_at
-		FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.Name, &p.Description, &domain, &nginxRaw, &p.CreatedAt, &p.UpdatedAt)
-	p.Domain = domain.String
-	p.NginxRaw = nginxRaw.String
+func (s *Storage) GetProject(_ context.Context, id int64) (*Project, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project: %w", err)
-	}
-
-	services, err := s.ListServicesByProject(ctx, p.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load project services: %w", err)
-	}
-	p.Services = services
-
-	return p, nil
-}
-
-// GetProjectByName retrieves a project by name
-func (s *Storage) GetProjectByName(ctx context.Context, name string) (*Project, error) {
-	p := &Project{}
-	var domain, nginxRaw sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, COALESCE(domain, ''), COALESCE(nginx_raw, ''), created_at, updated_at
-		FROM projects WHERE name = ?
-	`, name).Scan(&p.ID, &p.Name, &p.Description, &domain, &nginxRaw, &p.CreatedAt, &p.UpdatedAt)
-	p.Domain = domain.String
-	p.NginxRaw = nginxRaw.String
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project by name: %w", err)
-	}
-
-	services, err := s.ListServicesByProject(ctx, p.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load project services: %w", err)
-	}
-	p.Services = services
-
-	return p, nil
-}
-
-// ListProjects retrieves all projects
-func (s *Storage) ListProjects(ctx context.Context) ([]*Project, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, COALESCE(domain, ''), COALESCE(nginx_raw, ''), created_at, updated_at
-		FROM projects ORDER BY name ASC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list projects: %w", err)
-	}
-	defer rows.Close()
-
-	var projects []*Project
-	for rows.Next() {
-		p := &Project{}
-		var domain, nginxRaw sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &domain, &nginxRaw, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan project: %w", err)
+	for _, p := range s.data.Projects {
+		if p.ID == id {
+			out := clone(p)
+			out.Services = s.servicesForProject(id)
+			return out, nil
 		}
-		p.Domain = domain.String
-		p.NginxRaw = nginxRaw.String
+	}
+	return nil, nil
+}
+
+func (s *Storage) ListProjects(_ context.Context) ([]*Project, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]*Project, 0, len(s.data.Projects))
+	for _, p := range s.data.Projects {
+		cp := clone(p)
+		cp.Services = s.servicesForProject(p.ID)
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+func (s *Storage) UpdateProject(_ context.Context, id int64, req *UpdateProjectRequest) (*Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, p := range s.data.Projects {
+		if p.ID == id {
+			p.Name = req.Name
+			p.Description = req.Description
+			p.UpdatedAt = time.Now()
+			if err := s.save(); err != nil {
+				return nil, err
+			}
+			out := clone(p)
+			out.Services = s.servicesForProject(id)
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("project %d not found", id)
+}
+
+func (s *Storage) DeleteProject(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	projects := s.data.Projects[:0]
+	found := false
+	for _, p := range s.data.Projects {
+		if p.ID == id {
+			found = true
+			continue
+		}
 		projects = append(projects, p)
 	}
+	if !found {
+		return fmt.Errorf("project %d not found", id)
+	}
+	s.data.Projects = projects
 
-	return projects, rows.Err()
-}
+	// Cascade delete services and their deployments
+	services := s.data.Services[:0]
+	var deletedServiceIDs []int64
+	for _, sv := range s.data.Services {
+		if sv.ProjectID == id {
+			deletedServiceIDs = append(deletedServiceIDs, sv.ID)
+			continue
+		}
+		services = append(services, sv)
+	}
+	s.data.Services = services
 
-// UpdateProject updates a project group
-func (s *Storage) UpdateProject(ctx context.Context, id int64, req *UpdateProjectRequest) (*Project, error) {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE projects SET name = ?, description = ?, domain = ?, updated_at = ?
-		WHERE id = ?
-	`, req.Name, req.Description, req.Domain, time.Now(), id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update project: %w", err)
+	if len(deletedServiceIDs) > 0 {
+		deployments := s.data.Deployments[:0]
+		for _, d := range s.data.Deployments {
+			skip := false
+			for _, sid := range deletedServiceIDs {
+				if d.ServiceID == sid {
+					skip = true
+					break
+				}
+			}
+			if !skip {
+				deployments = append(deployments, d)
+			}
+		}
+		s.data.Deployments = deployments
 	}
 
-	return s.GetProject(ctx, id)
+	return s.save()
 }
 
-// UpdateProjectNginxRaw updates only the nginx_raw field of a project
-func (s *Storage) UpdateProjectNginxRaw(ctx context.Context, id int64, nginxRaw string) (*Project, error) {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE projects SET nginx_raw = ?, updated_at = ?
-		WHERE id = ?
-	`, nginxRaw, time.Now(), id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update nginx config: %w", err)
-	}
+// ================== Services ==================
 
-	return s.GetProject(ctx, id)
-}
+func (s *Storage) CreateService(_ context.Context, req *CreateServiceRequest) (*Service, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-// DeleteProject deletes a project and all its services (via CASCADE)
-func (s *Storage) DeleteProject(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete project: %w", err)
-	}
-	return nil
-}
-
-// --- Service Methods ---
-
-// CreateService adds a service to a project
-func (s *Storage) CreateService(ctx context.Context, req *CreateServiceRequest) (*Service, error) {
 	user := req.User
 	if user == "" {
 		user = "root"
 	}
-
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO services (project_id, name, type, version, port, git_repo_url, command, working_dir, user, environment, auto_restart, config, systemd_raw, nginx_raw)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.ProjectID, req.Name, req.Type, req.Version, req.Port, req.GitRepoURL, req.Command, req.WorkingDir, user, req.Environment, req.AutoRestart, req.Config, req.SystemdRaw, req.NginxRaw)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create service: %w", err)
+	now := time.Now()
+	sv := &Service{
+		ID:           s.nextID(),
+		ProjectID:    req.ProjectID,
+		Name:         req.Name,
+		GitRepoURL:   req.GitRepoURL,
+		BuildCommand: req.BuildCommand,
+		Command:      req.Command,
+		WorkingDir:   req.WorkingDir,
+		User:         user,
+		Environment:  req.Environment,
+		AutoRestart:  req.AutoRestart,
+		SystemdRaw:   req.SystemdRaw,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	s.data.Services = append(s.data.Services, sv)
+	if err := s.save(); err != nil {
+		return nil, err
 	}
-
-	return s.GetService(ctx, id)
+	out := *sv
+	return &out, nil
 }
 
-// GetService retrieves a service by ID
-func (s *Storage) GetService(ctx context.Context, id int64) (*Service, error) {
-	sv := &Service{}
-	var autoRestart int
+func (s *Storage) GetService(_ context.Context, id int64) (*Service, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, project_id, name, type, version, COALESCE(port, 0), git_repo_url, command, working_dir, user, environment, auto_restart, config, systemd_raw, nginx_raw, created_at, updated_at
-		FROM services WHERE id = ?
-	`, id).Scan(
-		&sv.ID, &sv.ProjectID, &sv.Name, &sv.Type, &sv.Version, &sv.Port, &sv.GitRepoURL, &sv.Command, &sv.WorkingDir,
-		&sv.User, &sv.Environment, &autoRestart, &sv.Config, &sv.SystemdRaw, &sv.NginxRaw, &sv.CreatedAt, &sv.UpdatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get service: %w", err)
-	}
-
-	sv.AutoRestart = autoRestart == 1
-	return sv, nil
-}
-
-// ListServicesByProject retrieves all services for a project
-func (s *Storage) ListServicesByProject(ctx context.Context, projectID int64) ([]*Service, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, project_id, name, type, version, COALESCE(port, 0), git_repo_url, command, working_dir, user, environment, auto_restart, config, systemd_raw, nginx_raw, created_at, updated_at
-		FROM services WHERE project_id = ? ORDER BY name ASC
-	`, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list services: %w", err)
-	}
-	defer rows.Close()
-
-	var services []*Service
-	for rows.Next() {
-		sv := &Service{}
-		var autoRestart int
-		if err := rows.Scan(
-			&sv.ID, &sv.ProjectID, &sv.Name, &sv.Type, &sv.Version, &sv.Port, &sv.GitRepoURL, &sv.Command, &sv.WorkingDir,
-			&sv.User, &sv.Environment, &autoRestart, &sv.Config, &sv.SystemdRaw, &sv.NginxRaw, &sv.CreatedAt, &sv.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan service: %w", err)
+	for _, sv := range s.data.Services {
+		if sv.ID == id {
+			out := *sv
+			return &out, nil
 		}
-		sv.AutoRestart = autoRestart == 1
+	}
+	return nil, nil
+}
+
+func (s *Storage) ListServicesByProject(_ context.Context, projectID int64) ([]*Service, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.servicesForProject(projectID), nil
+}
+
+// servicesForProject returns copies of services for a project. Caller must hold at least RLock.
+func (s *Storage) servicesForProject(projectID int64) []*Service {
+	var out []*Service
+	for _, sv := range s.data.Services {
+		if sv.ProjectID == projectID {
+			cp := *sv
+			out = append(out, &cp)
+		}
+	}
+	return out
+}
+
+func (s *Storage) UpdateService(_ context.Context, id int64, req *UpdateServiceRequest) (*Service, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, sv := range s.data.Services {
+		if sv.ID == id {
+			sv.Name = req.Name
+			sv.GitRepoURL = req.GitRepoURL
+			sv.BuildCommand = req.BuildCommand
+			sv.Command = req.Command
+			sv.WorkingDir = req.WorkingDir
+			sv.User = req.User
+			sv.Environment = req.Environment
+			sv.AutoRestart = req.AutoRestart
+			sv.SystemdRaw = req.SystemdRaw
+			sv.UpdatedAt = time.Now()
+			if err := s.save(); err != nil {
+				return nil, err
+			}
+			out := *sv
+			return &out, nil
+		}
+	}
+	return nil, fmt.Errorf("service %d not found", id)
+}
+
+func (s *Storage) DeleteService(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	services := s.data.Services[:0]
+	found := false
+	for _, sv := range s.data.Services {
+		if sv.ID == id {
+			found = true
+			continue
+		}
 		services = append(services, sv)
 	}
+	if !found {
+		return fmt.Errorf("service %d not found", id)
+	}
+	s.data.Services = services
 
-	return services, rows.Err()
+	// Delete associated deployments
+	deployments := s.data.Deployments[:0]
+	for _, d := range s.data.Deployments {
+		if d.ServiceID != id {
+			deployments = append(deployments, d)
+		}
+	}
+	s.data.Deployments = deployments
+
+	return s.save()
 }
 
-// UpdateService updates a service's configuration
-func (s *Storage) UpdateService(ctx context.Context, id int64, req *UpdateServiceRequest) (*Service, error) {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE services SET
-			name = ?, port = ?, git_repo_url = ?, command = ?, working_dir = ?, user = ?,
-			environment = ?, auto_restart = ?, config = ?, systemd_raw = ?, nginx_raw = ?, updated_at = ?
-		WHERE id = ?
-	`, req.Name, req.Port, req.GitRepoURL, req.Command, req.WorkingDir, req.User,
-		req.Environment, req.AutoRestart, req.Config, req.SystemdRaw, req.NginxRaw, time.Now(), id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update service: %w", err)
-	}
+// ================== Deployments ==================
 
-	return s.GetService(ctx, id)
+func (s *Storage) CreateDeployment(_ context.Context, serviceID int64) (*Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	d := &Deployment{
+		ID:        s.nextID(),
+		ServiceID: serviceID,
+		Status:    "running",
+		StartedAt: time.Now(),
+	}
+	s.data.Deployments = append(s.data.Deployments, d)
+	if err := s.save(); err != nil {
+		return nil, err
+	}
+	out := *d
+	return &out, nil
 }
 
-// DeleteService deletes a service by ID
-func (s *Storage) DeleteService(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM services WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete service: %w", err)
+func (s *Storage) GetDeployment(_ context.Context, id int64) (*Deployment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, d := range s.data.Deployments {
+		if d.ID == id {
+			out := *d
+			return &out, nil
+		}
 	}
-	return nil
+	return nil, nil
 }
 
-// --- Settings Methods ---
+func (s *Storage) ListDeploymentsByService(_ context.Context, serviceID int64) ([]*Deployment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-// GetSetting retrieves a setting by key
-func (s *Storage) GetSetting(ctx context.Context, key string) (string, error) {
-	var value string
-	err := s.db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
+	var out []*Deployment
+	for _, d := range s.data.Deployments {
+		if d.ServiceID == serviceID {
+			cp := *d
+			out = append(out, &cp)
+		}
 	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get setting: %w", err)
-	}
-	return value, nil
+	return out, nil
 }
 
-// SetSetting saves or updates a setting
-func (s *Storage) SetSetting(ctx context.Context, key string, value string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO settings (key, value) VALUES (?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-	`, key, value)
-	if err != nil {
-		return fmt.Errorf("failed to set setting: %w", err)
+func (s *Storage) UpdateDeploymentStatus(_ context.Context, id int64, status, log string, finishedAt *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, d := range s.data.Deployments {
+		if d.ID == id {
+			d.Status = status
+			d.Log = log
+			d.FinishedAt = finishedAt
+			return s.save()
+		}
 	}
-	return nil
+	return fmt.Errorf("deployment %d not found", id)
+}
+
+// ================== helpers ==================
+
+func clone(p *Project) *Project {
+	cp := *p
+	return &cp
 }

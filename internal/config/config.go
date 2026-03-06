@@ -23,7 +23,7 @@ func Load() (*Config, error) {
 
 	// Define flags
 	flag.StringVar(&cfg.Addr, "addr", getEnv("SERVIO_ADDR", ":8080"), "HTTP server address")
-	flag.StringVar(&cfg.DBPath, "db", getEnv("SERVIO_DB", "servio.db"), "SQLite database path")
+	flag.StringVar(&cfg.DBPath, "db", getEnv("SERVIO_DB", "servio.json"), "Data file path (JSON)")
 	flag.StringVar(&cfg.LogLevel, "log-level", getEnv("SERVIO_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
 
 	flag.Parse()

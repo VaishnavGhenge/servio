@@ -84,3 +84,9 @@ func (rw *responseWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// newHeartbeatTicker returns a time.Ticker that fires every intervalSec seconds.
+// Used by SSE handlers to send keep-alive comments through idle-timeout proxies.
+func newHeartbeatTicker(intervalSec int) *time.Ticker {
+	return time.NewTicker(time.Duration(intervalSec) * time.Second)
+}
