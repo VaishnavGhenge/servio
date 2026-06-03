@@ -49,11 +49,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/projects/new", s.handleNewProject)
 	mux.HandleFunc("/projects/", s.handleProjectDetail)
 	mux.HandleFunc("/services/new", s.handleNewService)
+	mux.HandleFunc("/services/import", s.handleImportServices)
 	mux.HandleFunc("/services/", s.handleServiceDetail)
 
 	// API routes
 	mux.HandleFunc("/api/projects", s.handleAPIProjects)
 	mux.HandleFunc("/api/projects/", s.handleAPIProject)
+	mux.HandleFunc("/api/services/discover", s.handleAPIDiscoverServices)
 	mux.HandleFunc("/api/services", s.handleAPIServices)
 	mux.HandleFunc("/api/services/", s.handleAPIService)
 	mux.HandleFunc("/api/stats", s.handleAPIStats)
