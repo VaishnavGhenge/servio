@@ -1,0 +1,83 @@
+{{template "layout" .}} {{define "content"}}
+<div class="page-container">
+  <header class="page-header">
+    <div class="header-left">
+      <a href="/" class="btn btn-outline btn-sm">← Back</a>
+      <h1>Import Existing Services</h1>
+    </div>
+  </header>
+
+  {{if not .Discovered}}
+  <div class="empty-state">
+    <div class="empty-icon">{{template "icon-package"}}</div>
+    <h3>No Unmanaged Services Found</h3>
+    <p>All systemd services in <code>/etc/systemd/system/</code> are already managed by Servio, or the directory is not accessible.</p>
+    <a href="/" class="btn btn-primary">Go to Dashboard</a>
+  </div>
+  {{else}}
+
+  {{if not .Projects}}
+  <div class="alert alert-warning">
+    You need at least one project before importing services.
+    <a href="/projects/new">Create a project</a> first.
+  </div>
+  {{else}}
+
+  <p class="text-muted">Found <strong>{{len .Discovered}}</strong> unmanaged service(s) on this system. Select the ones you want to bring under Servio management.</p>
+
+  <div class="service-import-list">
+    {{range .Discovered}}
+    <div class="card import-card">
+      <div class="import-card-header">
+        <div class="import-card-title">
+          <span class="dot status-{{if .Active}}running{{else}}stopped{{end}}"></span>
+          <strong>{{.UnitName}}</strong>
+          {{if .Active}}<span class="badge badge-success">active</span>{{end}}
+          {{if .Enabled}}<span class="badge badge-secondary">enabled</span>{{end}}
+        </div>
+      </div>
+
+      {{if .Description}}<p class="import-description">{{.Description}}</p>{{end}}
+
+      <div class="import-details">
+        {{if .ExecStart}}<div class="detail-row"><span class="detail-label">Command</span><code>{{.ExecStart}}</code></div>{{end}}
+        {{if .WorkingDir}}<div class="detail-row"><span class="detail-label">Working dir</span><code>{{.WorkingDir}}</code></div>{{end}}
+        {{if .User}}<div class="detail-row"><span class="detail-label">User</span><code>{{.User}}</code></div>{{end}}
+        {{if .Environment}}<div class="detail-row"><span class="detail-label">Environment</span><code>{{.Environment}}</code></div>{{end}}
+      </div>
+
+      <form method="POST" action="/services/import" class="import-form">
+        <input type="hidden" name="unit_name" value="{{.UnitName}}">
+        <div class="import-form-row">
+          <label for="project_{{.UnitName}}">Import into project:</label>
+          <select name="project_id" id="project_{{.UnitName}}" required class="form-select">
+            <option value="">— select project —</option>
+            {{range $.Projects}}
+            <option value="{{.ID}}">{{.Name}}</option>
+            {{end}}
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">Import</button>
+        </div>
+      </form>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}
+</div>
+
+<style>
+.import-card { margin-bottom: 1rem; padding: 1.25rem; }
+.import-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.import-card-title { display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; }
+.import-description { color: var(--text-muted); margin: 0.25rem 0 0.75rem; font-size: 0.9rem; }
+.import-details { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; font-size: 0.85rem; }
+.detail-row { display: flex; gap: 0.75rem; align-items: baseline; }
+.detail-label { min-width: 90px; color: var(--text-muted); font-size: 0.8rem; }
+.detail-row code { word-break: break-all; }
+.import-form-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.form-select { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input, var(--bg)); color: var(--text); font-size: 0.875rem; }
+.service-import-list { max-width: 800px; }
+.alert-warning { background: #fff8e1; border: 1px solid #f9a825; color: #5d4037; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+</style>
+{{end}}

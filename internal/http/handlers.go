@@ -15,6 +15,7 @@ import (
 	"servio/internal/git"
 	"servio/internal/monitor"
 	"servio/internal/storage"
+	systemdpkg "servio/internal/systemd"
 )
 
 //go:embed templates/*
@@ -350,6 +351,103 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/projects/%d", service.ProjectID), http.StatusSeeOther)
 }
 
+// handleImportServices shows discovered systemd services and lets the user
+// import them into Servio under an existing project.
+func (s *Server) handleImportServices(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.store.ListProjects(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to load projects", http.StatusInternalServerError)
+		return
+	}
+
+	managed := s.managedServiceNames(r)
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		projectID, err := strconv.ParseInt(r.FormValue("project_id"), 10, 64)
+		if err != nil || projectID == 0 {
+			http.Error(w, "Invalid project_id", http.StatusBadRequest)
+			return
+		}
+
+		unitName := r.FormValue("unit_name") // e.g. "nginx.service"
+		if unitName == "" {
+			http.Error(w, "unit_name is required", http.StatusBadRequest)
+			return
+		}
+
+		// Re-discover to get parsed fields for the selected unit
+		discovered, err := s.svcManager.DiscoverServices(managed)
+		if err != nil {
+			http.Error(w, "Discovery failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var target *systemdpkg.DiscoveredService
+		for _, d := range discovered {
+			if d.UnitName == unitName {
+				target = d
+				break
+			}
+		}
+		if target == nil {
+			http.Error(w, "Service not found in discovered list", http.StatusBadRequest)
+			return
+		}
+
+		// Derive a Servio service name from the unit name (strip .service suffix)
+		svcName := strings.TrimSuffix(target.UnitName, ".service")
+
+		_, err = s.store.CreateService(r.Context(), &storage.CreateServiceRequest{
+			ProjectID:   projectID,
+			Name:        svcName,
+			Command:     target.ExecStart,
+			WorkingDir:  target.WorkingDir,
+			User:        target.User,
+			Environment: target.Environment,
+			AutoRestart: target.AutoRestart,
+			// Store the original unit name in SystemdRaw so the service can be
+			// controlled even though its unit name differs from servio-<name>.service.
+			SystemdRaw: "# imported from " + target.UnitName,
+		})
+		if err != nil {
+			http.Error(w, "Failed to import service: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		http.Redirect(w, r, "/projects/"+strconv.FormatInt(projectID, 10), http.StatusSeeOther)
+		return
+	}
+
+	discovered, err := s.svcManager.DiscoverServices(managed)
+	if err != nil {
+		// Not a fatal error — /etc/systemd/system may not be accessible
+		slog.Warn("Service discovery failed", "error", err)
+		discovered = nil
+	}
+
+	render(w, "import_services.html", map[string]interface{}{
+		"Title":      "Import Existing Services",
+		"Projects":   projects,
+		"Discovered": discovered,
+	})
+}
+
+// managedServiceNames returns the set of systemd unit names already tracked by Servio.
+func (s *Server) managedServiceNames(r *http.Request) map[string]struct{} {
+	projects, _ := s.store.ListProjects(r.Context())
+	names := make(map[string]struct{})
+	for _, p := range projects {
+		for _, svc := range p.Services {
+			names[svc.ServiceName()] = struct{}{}
+		}
+	}
+	return names
+}
+
 // ================== API Handlers ==================
 
 func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +525,19 @@ func (s *Server) handleAPIProject(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleAPIDiscoverServices(w http.ResponseWriter, r *http.Request) {
+	managed := s.managedServiceNames(r)
+	discovered, err := s.svcManager.DiscoverServices(managed)
+	if err != nil {
+		jsonError(w, "Discovery failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if discovered == nil {
+		discovered = []*systemdpkg.DiscoveredService{}
+	}
+	jsonResponse(w, discovered)
 }
 
 func (s *Server) handleAPIServices(w http.ResponseWriter, r *http.Request) {

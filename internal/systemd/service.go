@@ -26,6 +26,7 @@ type ServiceManager interface {
 	InstallService(ctx context.Context, service *storage.Service) error
 	UninstallService(ctx context.Context, serviceName string) error
 	ServiceExists(serviceName string) bool
+	DiscoverServices(managedNames map[string]struct{}) ([]*DiscoveredService, error)
 }
 
 // ServiceStatus holds the runtime status of a systemd unit.
@@ -99,6 +100,20 @@ func (m *Manager) GetStartTime(ctx context.Context, serviceName string) (string,
 		return "", fmt.Errorf("failed to get start time: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func (m *Manager) DiscoverServices(managedNames map[string]struct{}) ([]*DiscoveredService, error) {
+	svcs, err := DiscoverExistingServices(managedNames)
+	if err != nil {
+		return nil, err
+	}
+	// Annotate active/enabled status
+	for _, svc := range svcs {
+		status, _ := m.Status(context.Background(), svc.UnitName)
+		svc.Active = status.Active
+		svc.Enabled = status.Enabled
+	}
+	return svcs, nil
 }
 
 func (m *Manager) runSystemctl(ctx context.Context, action, serviceName string) error {
